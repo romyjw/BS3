@@ -1,0 +1,10 @@
+{
+"blend_type" : "discrete",
+"shape_id" : "analytic_torus",
+"coarse_patches_id" : "100face_torus",
+"angle_flag" : "equal",
+"overlap_param" : 0.7,
+"degree" : 3,
+"global_scale" : 0.2
+
+}

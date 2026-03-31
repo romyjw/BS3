@@ -1,0 +1,10 @@
+{
+"blend_type" : "pou_2",
+"shape_id" : "camera",
+"coarse_patches_id" : "100face_camera",
+"angle_flag" : "equal",
+"overlap_param" : 0.7,
+"degree" : 3,
+"global_scale" : 0.1
+
+}

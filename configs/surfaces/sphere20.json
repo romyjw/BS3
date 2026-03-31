@@ -1,0 +1,9 @@
+{
+"blend_type" : "pou_2",
+"shape_id" : "analytic_sphere",
+"coarse_patches_id" : "sphere2_20patch",
+"angle_flag" : "equal",
+"overlap_param" : 0.7,
+"degree" : 3
+
+}

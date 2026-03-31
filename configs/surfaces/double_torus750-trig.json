@@ -1,0 +1,11 @@
+{
+"blend_type" : "pou_trig",
+"shape_id" : "deep3d_double_torus",
+"coarse_patches_id" : "double_torus750",
+"sdf_weights_path" : "deep3d_double_torus_best.ckpt",
+"sdf_transition_width" : 0.6,
+"overlap_param" : 0.73,
+"degree" : 3,
+"global_scale" : 0.1
+
+}

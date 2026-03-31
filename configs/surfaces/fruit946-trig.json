@@ -1,0 +1,13 @@
+{
+"blend_type" : "pou_trig",
+"shape_id" : "deep3d_fruit",
+"coarse_patches_id" : "fruit946",
+"sdf_weights_path" : "deep3d_fruit_best.ckpt",
+"sdf_mask_weight" : 0.8,
+"sdf_transition_width" : 0.6,
+"angle_flag" : "equal",
+"overlap_param" : 0.73,
+"degree" : 3,
+"global_scale" : 0.2
+
+}
