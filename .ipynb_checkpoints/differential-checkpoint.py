@@ -236,14 +236,10 @@ class DifferentialModule(Module):
 
         W = alpha * trS2 + 0.5 * beta * (trS ** 2)  # (P, N)
 
-        if return_total_energy:
-            print(W.shape, area_stretch.shape)
-            total_energy = (W*(area_stretch.squeeze())).mean() #maybe times by 4/sqrt3. For now it's just proportional
+        total_energy = (W*(area_stretch.squeeze())).mean() #maybe times by 4/sqrt3. For now it's just proportional
 
+        return W, total_energy, FFF
         
-            return W, total_energy, FFF
-        else:
-            return W,0,FFF
             
 
         

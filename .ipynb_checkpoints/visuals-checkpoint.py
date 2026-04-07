@@ -403,6 +403,8 @@ class BPS_visualiser():
     def load_regular_base_patches(self):
         self.base_facepatches = [ o3d.io.read_triangle_mesh('data/high_precision_subdiv_triangles/triangle_'+str(self.mesh_res)+'.obj')
                              for i in range(self.bps.num_facepatches) ]
+
+        self.x = self.base_facepatches[0]
         return
 
 
@@ -869,6 +871,8 @@ class Elastic_energy_visualiser():
     
         # Store per-patch elastic energies
         self.elastic_energy = W
+
+        print('W', W)
         
         self.area_dist = torch.sqrt ( FFF[:,:,0,0] * FFF[:,:,1,1] - FFF[:,:,1,0]**2 )
 

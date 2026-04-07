@@ -22,7 +22,7 @@ print('Using open3d version at',o3d.__path__)
 
 
 class BPS_fast(nn.Module):
-    def __init__(self, surface_config = None, device='cpu'):
+    def __init__(self, surface_config = None, device='cpu', deformed=False):
         super(BPS_fast, self).__init__()
 
         print('Initialising BPS on', device)
@@ -30,7 +30,11 @@ class BPS_fast(nn.Module):
         self.device = device
 
         self.blend_type = surface_config['blend_type']
-        self.coarse_patches_id = surface_config['coarse_patches_id']
+        if deformed==False:
+            self.coarse_patches_id = surface_config['coarse_patches_id']
+        else:
+            self.coarse_patches_id = surface_config['coarse_patches_id']+'-deformed'
+            
         self.angle_flag = 'equal' #no longer used
         self.overlap_param = surface_config['overlap_param']    # 0.15470053837 < v < 0.73205080756
         self.degree = surface_config['degree'] #polynomial degree
