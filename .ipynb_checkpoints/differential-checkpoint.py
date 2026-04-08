@@ -5,6 +5,7 @@ from torch.nn import Module
 import numpy as np
 import time
 import warnings
+from torch.func import jacrev, vmap
 
 warnings.filterwarnings("ignore", category=UserWarning, module="torch")
 
@@ -52,6 +53,7 @@ class DifferentialModule(Module):
         return jacobian
     '''
 
+    '''
     def gradient(self, out, wrt, allow_unused=False):
         """
         out: [..., N, R]
@@ -93,7 +95,51 @@ class DifferentialModule(Module):
         jac = torch.cat(jac_list, dim=-len(extra)-2)
     
         return jac
+    '''
 
+
+    def gradient(self, out, wrt, allow_unused=False):
+        """
+        out: [B, N, R]  (e.g., [200, 15, 3])
+        wrt: [B, N, C]  (e.g., [200, 15, 2])
+        """
+        *batch_dims, N, R = out.shape
+        
+        # 1. Create the basis (identity matrix)
+        # shape: [R, R]
+        identity = torch.eye(R, device=out.device, dtype=out.dtype)
+        
+        # 2. Reshape identity to [R, 1, 1, R] so it can broadcast over [B, N, R]
+        # The first 'R' is the "batch" for is_grads_batched=True
+        # The last 'R' is the one that dots against the 'out' dimension
+        basis_shape = [R] + [1] * len(batch_dims) + [1, R]
+        grad_outputs = identity.view(*basis_shape).expand(R, *batch_dims, N, R)
+    
+        # 3. Compute the gradient
+        # Since grad_outputs is [3, 200, 15, 3], jac will be [3, 200, 15, 2]
+        jac = torch.autograd.grad(
+            outputs=out,
+            inputs=wrt,
+            grad_outputs=grad_outputs,
+            is_grads_batched=True, 
+            create_graph=True,
+            retain_graph=True,
+            allow_unused=allow_unused
+        )[0]
+    
+        # 4. Reshape to your original desired format: [B, N, R, C]
+        # Current jac: [R, B, N, C]
+        # Target: [B, N, R, C]
+        
+        # We move the first dimension (R) to the position after N
+        # Position index: R(0), B(1), N(2), C(3) -> move 0 to position 2
+        jac = jac.movedim(0, len(batch_dims) + 1)
+    
+        return jac
+
+
+
+    
     def backprop(self, out, wrt):
         select = torch.ones(out.size(), dtype=torch.float32).to(out.device)
         J = Grad.grad(outputs=out, inputs=wrt, grad_outputs=select, create_graph=True)[0]

@@ -620,19 +620,52 @@ class BPS_visualiser():
 
             ################ CURVATURE VIEWS ###################
             if 'curv' in settings:
+                # --- Process Mean Curvature ---
+                all_mean_colors = []
                 for i, facepatch in enumerate(facepatches):
-                    colors = self.meancurv_cmap( self.meancurv_mapping ( self.meancurv[i,:].detach().cpu().numpy() ) )[:,:-1]
+                    # Compute colors for this patch
+                    colors = self.meancurv_cmap(self.meancurv_mapping(self.meancurv[i,:].detach().cpu().numpy()))[:, :-1]
                     facepatch.vertex_colors = Vector3dVector(colors)
-                    
-                o3d.visualization.draw_geometries(facepatches+vtx_blobs+actual_vtx_blobs, window_name='Mean Curvature')
+                    all_mean_colors.append(colors)
+
                 
+                
+                # Flatten list of arrays into one big array for export
+                combined_mean_colors = np.concatenate(all_mean_colors, axis=0)
+                # CRITICAL: Update the actual mesh object you are exporting
+                combined_mesh.vertex_colors = o3d.utility.Vector3dVector(combined_mean_colors)
+                
+                o3d.visualization.draw_geometries(facepatches + vtx_blobs + actual_vtx_blobs, window_name='Mean Curvature')
+                
+                # OBJ export (Note: Ensure combined_mesh vertex colors are updated if using this)
+                o3d.io.write_triangle_mesh(str(output_dir / "meancurv-coloured.obj"), combined_mesh)
+                
+                # Export using the FULL color array
+                self._export_colored_ply(facepatches, combined_mean_colors, output_dir / "meancurv.ply", name="meancurv_colours")
+            
+                # --- Process Gauss Curvature ---
+                all_gauss_colors = []
                 for i, facepatch in enumerate(facepatches):
-                    colors = self.gausscurv_cmap( self.gausscurv_mapping ( self.gausscurv[i,:].detach().cpu().numpy() ) )[:,:-1]
+                    colors = self.gausscurv_cmap(self.gausscurv_mapping(self.gausscurv[i,:].detach().cpu().numpy()))[:, :-1]
                     facepatch.vertex_colors = Vector3dVector(colors)
+                    all_gauss_colors.append(colors)
                     
-                o3d.visualization.draw_geometries(facepatches+vtx_blobs+actual_vtx_blobs, window_name='Gauss Curvature')
-                #self.show_cbar(self.gausscurv_mapping, self.gausscurv_cmap, filename='output/gausscurv_cbar.png')
-                #self.show_cbar(self.meancurv_mapping, self.meancurv_cmap, filename='output/meancurv_cbar.png')
+                combined_gauss_colors = np.concatenate(all_gauss_colors, axis=0)
+                # CRITICAL: Update the actual mesh object you are exporting
+                combined_mesh.vertex_colors = o3d.utility.Vector3dVector(combined_gauss_colors)
+            
+                o3d.visualization.draw_geometries(facepatches + vtx_blobs + actual_vtx_blobs, window_name='Gauss Curvature')
+            
+                o3d.io.write_triangle_mesh(str(output_dir / "gausscurv-coloured.obj"), combined_mesh)
+                
+                # Export using the FULL color array
+                self._export_colored_ply(facepatches, combined_gauss_colors, output_dir / "gausscurv.ply", name="gausscurv_colours")
+    
+                    
+    
+                    
+                    #self.show_cbar(self.gausscurv_mapping, self.gausscurv_cmap, filename='output/gausscurv_cbar.png')
+                    #self.show_cbar(self.meancurv_mapping, self.meancurv_cmap, filename='output/meancurv_cbar.png')
 
             if 'blend' in settings:
 
