@@ -347,9 +347,83 @@ class BPS_fast(nn.Module):
             self.rotations = [torch.eye(3, device = self.device) for i in range(self.n)]
 
 
+    
+
+    def compute_samples(self, num_samples=10000, num_bdry_samples = 100, eps=0.02):
+        """
+        Sample points on mesh faces.
+    
+        Args:
+            num_samples (int): number of samples per face.
+            avoid_corners (bool): if True, resample points too close to vertices.
+            eps (float): minimum distance from any corner in barycentric coords.
+        """
+        embedded_triangles = []
+        patches_bary = []
+        uvs = []
+        for triangle_index in range(self.F.shape[0]):
+    
+            
+            # 1. Regular Interior Sampling (Area)
+            u = torch.rand(num_samples, 1, device=self.device)
+            v = torch.rand(num_samples, 1, device=self.device)
+            sqrt_u = torch.sqrt(u)
+            bary_main = torch.cat([
+                1 - sqrt_u,
+                sqrt_u * (1 - v),
+                sqrt_u * v
+            ], dim=1)
+            
+            # 2. Boundary Sampling (Edges - Slightly Inward)
+            s_per_edge = num_bdry_samples // 3
+            t = torch.rand(s_per_edge, 1, device=self.device) 
+            inset = 0.0  # Adjust this to control how far "inside" they are
+            
+            # We use (1 - 2*inset) to scale the edge parameters so they don't hit corners,
+            # then add 'inset' to the zero-component and re-distribute.
+            t_scaled = inset + t * (1 - 2 * inset)
+            
+            # Edge 0-1: w2 was 0, now inset. Remaining 1-inset is split between w0 and w1.
+            # We multiply (t, 1-t) by (1-inset) to ensure sum is 1.0
+            rem = 1.0 - inset
+            b_e1 = torch.cat([t_scaled * rem, (1 - t_scaled) * rem, torch.full_like(t, inset)], dim=1)
+            
+            # Edge 1-2: w0 was 0, now inset.
+            b_e2 = torch.cat([torch.full_like(t, inset), t_scaled * rem, (1 - t_scaled) * rem], dim=1)
+            
+            # Edge 2-0: w1 was 0, now inset.
+            b_e3 = torch.cat([(1 - t_scaled) * rem, torch.full_like(t, inset), t_scaled * rem], dim=1)
+            
+            bary_bdry = torch.cat([b_e1, b_e2, b_e3], dim=0)
+            #print(bary_bdry.max(), bary_bdry.min(), bary_bdry.sum(1), bary_bdry.shape )
+            #print(bary_main.max(), bary_main.min(), bary_main.sum(1), bary_main.shape )
+            
+            # 3. Combine along the sample dimension
+            bary = torch.cat([bary_main, bary_bdry], dim=0)
+
+            
+            
+    
+            patches_bary.append(bary)
+    
+            verts = self.V[self.F[triangle_index, :]]
+            embedded_triangles.append(bary @ verts)
+            uvs.append(bary @ self.base_triangle_verts.float())
+    
+        embedded_triangles = torch.stack(embedded_triangles)
+        patches_bary = torch.stack(patches_bary)
+        uvs = torch.stack(uvs)
+    
+        sample_dict = {
+            'bary': patches_bary,
+            'coarse_embedding': embedded_triangles,
+            'uv': uvs
+        }
+    
+        return sample_dict
 
 
-    def compute_samples(self, num_samples=10000, avoid_corners=False, eps=0.02):
+    def compute_samples_OLD(self, num_samples=10000, num_bdry_samples = 100, avoid_corners=False, eps=0.02):
         """
         Sample points on mesh faces.
     
@@ -413,7 +487,37 @@ class BPS_fast(nn.Module):
         return sample_dict
 
 
+        
 
+    def do_mobius_edits(self):
+        self.onerings[21]['V_indices'] = [65,28,20, 18, 93, 129]
+        self.onerings[21]['triangles'] = [11, 104, 105, 202, 43, 42]
+        
+        self.onerings[65]['V_indices'] = [28, 21, 129]
+        self.onerings[65]['triangles'] = [-1,-1,-1,-1, 43, 104]
+        
+        self.onerings[18]['V_indices'] = [94, 93, 21, 20, 19]
+        self.onerings[18]['triangles'] = [203, 202, 11, 10]
+        
+        self.F[104] = [129, 65, 21]
+        self.F[105] = [129, 21, 93]
+        self.F[202] = [93, 21, 18]
+        self.F[203] = [93, 18, 94]
+        
+        self.onerings[129]['V_indices'] = [53, 93, 21, 65]
+        self.onerings[93]['V_indices'] = [167, 21, 129, 53, 54, 94, 18]
+        self.onerings[94]['V_indices'] = [18, 93, 54, 95]
+        
+        
+        self.onerings[18]['valence'] = 8
+        self.onerings[65]['valence'] = 4
+        
+        self.rotations[18] = ( rotation_matrix_axis_angle(torch.tensor([0.0,0.0,1.0]).float(), torch.tensor(3*two_pi/8) ) .to(self.rotations[18].device) @ 
+                             self.rotations[18] )
+
+
+
+    
     def bary_weight(self, x, i):
         v_a = x - self.base_triangle_verts[i].to(x.device)
         v_b = x - self.base_triangle_verts[(i + 1) % 3].to(x.device)
@@ -484,7 +588,7 @@ class BPS_fast(nn.Module):
     
 
 
-    def precompute_data_from_samples(self, x, detached=True):
+    def precompute_data_from_samples(self, x, detached=True, mobius_example=False):
         print('Precomputing blend weights etc, using', self.blend_type, 'blending.')
 
         if detached==False:
@@ -568,20 +672,21 @@ class BPS_fast(nn.Module):
 
                 flip_func = lambda x: x
                 
-                '''
-                if (face_index in [104, 105, 202]):   #### crazy hardcoding just for mobius band
-                    if verts[i]==21:
-                        flip_func=lambda x: pi - x
-                    elif verts[i]==65:
-                        
-                        flip_func = lambda x: -x + 5 * two_pi/onering['valence']
-                    elif verts[i]==18:
-                        
-                        flip_func = lambda x: -x +  two_pi/onering['valence']
-
-                elif (face_index==203 and verts[i]==18):
-                    flip_func = lambda x: - x  + 7 * two_pi/onering['valence']
-                '''
+                if mobius_example==True:
+                    #print('MOBIUS!')
+                    if (face_index in [104, 105, 202]):   #### crazy hardcoding just for mobius band
+                        if verts[i]==21:
+                            flip_func=lambda x: pi - x
+                        elif verts[i]==65:
+                            
+                            flip_func = lambda x: -x + 5 * two_pi/onering['valence']
+                        elif verts[i]==18:
+                            
+                            flip_func = lambda x: -x +  two_pi/onering['valence']
+    
+                    elif (face_index==203 and verts[i]==18):
+                        flip_func = lambda x: - x  + 7 * two_pi/onering['valence']
+                
 
                 
                 
@@ -634,7 +739,8 @@ class BPS_fast(nn.Module):
                             'poly_basis': poly_basis, 'rotations':rotations, 'per_face_vertices':per_face_vertices, 'radii':all_radii,
                             'angles':all_angles, 'all_J_proxy':all_J_proxy,    'all_Jc_pinv':all_Jc_pinv,
                             'onering_coords_gradient': all_onering_coords_gradients, 'blend_weights_gradient': all_blend_weights_gradients,
-                           'poly_basis_gradient': poly_basis_gradient}
+                           'poly_basis_gradient': poly_basis_gradient
+                           }
 
         if detached==True:
             for key, data in precomputed_data.items():

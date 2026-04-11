@@ -464,24 +464,27 @@ def compute_onering_data(he_mesh, V_he, vtx_normals=None, sharp_halfedges=[]):
         
         cumulative_angle = 0.0
         onering['cumulative_angles'] = []
-        
-        for i in range(valence):
-            v1_idx = onering['V_indices'][i]
-            v2_idx = onering['V_indices'][(i+1) % valence]
-        
-            v_1 = torch.tensor(V[v1_idx] - v_center)   # edge vector
-            v_2 = torch.tensor(V[v2_idx] - v_center)   # next edge
-        
-            # Normalize (important for stability)
-            v_1 = v_1 / (torch.norm(v_1) + 1e-8)
-            v_2 = v_2 / (torch.norm(v_2) + 1e-8)
-        
-            # Dot product → angle
-            dot = torch.clamp(torch.dot(v_1, v_2), -1.0, 1.0)
-            cur_angle = torch.acos(dot)
-        
-            cumulative_angle += cur_angle.item()
-            onering['cumulative_angles'].append(cumulative_angle)
+        try:
+            for i in range(valence):
+                v1_idx = onering['V_indices'][i]
+                v2_idx = onering['V_indices'][(i+1) % valence]
+            
+                v_1 = torch.tensor(V[v1_idx] - v_center)   # edge vector
+                v_2 = torch.tensor(V[v2_idx] - v_center)   # next edge
+            
+                # Normalize (important for stability)
+                v_1 = v_1 / (torch.norm(v_1) + 1e-8)
+                v_2 = v_2 / (torch.norm(v_2) + 1e-8)
+            
+                # Dot product → angle
+                dot = torch.clamp(torch.dot(v_1, v_2), -1.0, 1.0)
+                cur_angle = torch.acos(dot)
+            
+                cumulative_angle += cur_angle.item()
+                onering['cumulative_angles'].append(cumulative_angle)
+        except:
+            #print('Could not compute cumulative onering angles, maybe because mesh has a boundary. Ignore if this is not needed.')
+            onering['cumulative_angles'] = None
 
         
         onerings.append(onering)

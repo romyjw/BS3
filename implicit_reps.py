@@ -61,6 +61,9 @@ def sdf(selected_pts, sdf_id, squared=False, model=None, transition_width=0.1):
     elif sdf_id=='mobius':
         return mobius_udf_robust(selected_pts, squared=squared)
 
+    elif sdf_id=='mobius_bdry':
+        return mobius_bdry_udf(selected_pts, squared=squared)
+
     
     else:
         raise ValueError("Sorry, couldn't find an sdf with the id", sdf_id)
@@ -234,6 +237,86 @@ def mobius_udf_robust(
         return torch.sqrt(dist2 + eps)
 
 
+
+
+
+def mobius_bdry_udf(
+    selected_pts,
+    R=1.0,
+    width=0.25,
+    squared=False,
+    eps=1e-8
+):
+    """
+    UDF for the single closed loop forming the boundary of a Möbius band.
+    Matches the logic and local frame of mobius_udf_robust.
+    """
+    x = selected_pts[..., 0]
+    y = selected_pts[..., 1]
+    z = selected_pts[..., 2]
+
+    # 1. Safe angle and local frame (Same as your original)
+    r2 = x*x + y*y
+    safe_r = torch.sqrt(r2 + eps)
+
+    cos_t = x / safe_r
+    sin_t = y / safe_r
+    theta = torch.atan2(sin_t, cos_t)
+    phi = 0.5 * theta
+
+    # Center circle path
+    c = torch.stack([
+        R * cos_t,
+        R * sin_t,
+        torch.zeros_like(theta)
+    ], dim=-1)
+
+    # Twisted normal (u-axis)
+    cos_phi = torch.cos(phi)
+    sin_phi = torch.sin(phi)
+    n = torch.stack([
+        cos_phi * cos_t,
+        cos_phi * sin_t,
+        sin_phi
+    ], dim=-1)
+
+    # Tangent (s-axis)
+    t = torch.stack([
+        -sin_t,
+        cos_t,
+        torch.zeros_like(theta)
+    ], dim=-1)
+
+    # 2. Project point into local coordinates
+    v = selected_pts - c
+    u = (v * n).sum(dim=-1)  # Distance along the "width" axis
+    s = (v * t).sum(dim=-1)  # Distance along the tangent (should be near 0)
+    
+    # Square of total displacement
+    vv = (v * v).sum(dim=-1)
+
+    # h2 is the squared distance perpendicular to the (n, t) plane
+    h2 = vv - u*u - s*s
+    h2 = torch.maximum(h2, torch.zeros_like(h2))
+
+    # 3. Boundary Calculation
+    # On the boundary, |u| = width and s = 0 and h = 0.
+    # We find the squared distance to the nearest of the two edge points in the cross-section.
+    dist_u_plus = (u - width)**2
+    dist_u_minus = (u + width)**2
+    
+    # Distance to the closer edge point in the local u-plane
+    u_boundary_dist2 = torch.minimum(dist_u_plus, dist_u_minus)
+
+    # Total squared distance: radial deviation (h2), tangential deviation (s2), 
+    # and distance to the edge point (u_boundary_dist2)
+    dist2 = h2 + s*s + u_boundary_dist2
+    dist2 = torch.maximum(dist2, torch.zeros_like(dist2))
+
+    if squared:
+        return dist2
+    else:
+        return torch.sqrt(dist2 + eps)
 
 
 

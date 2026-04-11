@@ -180,8 +180,9 @@ def save_mesh_screenshots(meshes, output_prefix="screenshot", width=3200, height
 
 
 class BPS_visualiser():
-    def __init__(self, bps, mesh_res=6, output_filepath='rendering/rendering_results/',  show_on_coarse=False, blend_type=None, just_onering = False ):
+    def __init__(self, bps, mesh_res=6, output_filepath='rendering/rendering_results/',  show_on_coarse=False, blend_type=None, just_onering = False, mobius_example=False):
 
+        self.mobius_example=mobius_example #flag that is set True if it's the mobius strip example
         self.mesh_res=mesh_res
         self.show_on_coarse=show_on_coarse
         self.blend_type=blend_type
@@ -422,7 +423,7 @@ class BPS_visualiser():
         wrt = torch.stack([torch.nn.functional.pad(t, (0, 0, 0, max_pts - t.shape[0])) for t in domain_samples_per_facepatch])
 
         wrt.requires_grad = True
-        precomputed_data = self.bps.precompute_data_from_samples(wrt, detached=False)
+        precomputed_data = self.bps.precompute_data_from_samples(wrt, detached=False, mobius_example=self.mobius_example)
 
         if degree ==  None:
             degree = self.bps.degree

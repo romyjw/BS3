@@ -79,14 +79,28 @@ from BPS import BPS_fast
 
 bps = BPS_fast(surface_config, device=device)
 
+mobius_example = False
+if 'mobius_example' in surface_config.keys() and surface_config['mobius_example']==True:
+    mobius_example=True
+
+if mobius_example==True:
+    bps.do_mobius_edits()
+
+
+
+
 # -------------------------------
 # Sample generation
 # -------------------------------
-training_samples = bps.compute_samples(num_samples=training_config['num_samples_per_face'] )
+training_samples = bps.compute_samples(num_samples=training_config['num_samples_per_face'], num_bdry_samples= training_config['num_bdry_samples_per_edge']*3)
+
+
 x = training_samples["uv"]
 
+
+
 precomputed_training_data = bps.precompute_data_from_samples(
-    x, detached=True
+    x, detached=True, mobius_example=mobius_example
 )
 
 # -------------------------------
