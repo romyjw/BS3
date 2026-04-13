@@ -27,7 +27,7 @@ PROXY_NAME = args.proxy_name
 config = hkw.config()
 
 
-if PROXY_NAME=='fertility':
+if PROXY_NAME=='fertility' or PROXY_NAME=='fertility-djuren':
     ROTATIONS = [
         ([0, 0, 1], -math.pi / 8),
         ([0, 1, 0], -math.pi / 6),
@@ -36,17 +36,17 @@ if PROXY_NAME=='fertility':
     
     config.sensor.location = [0, 0.5, 3]
     
-elif PROXY_NAME=='bob':
+elif PROXY_NAME=='bob' or PROXY_NAME=='bob-djuren':
     ROTATIONS = [(  [0, 1, 0], math.pi / 6)]
     config.sensor.location = [0, 2, 3]
     
-elif PROXY_NAME=='igea':
+elif PROXY_NAME=='igea' or PROXY_NAME=='igea-djuren':
     ROTATIONS = [
     ([0, 1, 0], math.pi / 6)
     ]
     config.sensor.location = [0, 0.5, 3]
     
-elif PROXY_NAME=='twisted_torus':
+elif PROXY_NAME=='twisted_torus' or PROXY_NAME=='twisted_torus-djuren':
     ROTATIONS=[]
     config.sensor.location = [0, 0.5, 3]
 
@@ -75,10 +75,35 @@ bs = rotated( hkw.layer(filepath).material(
 
 
 
+plain_layer = rotated(
+    hkw.layer(filepath).material(
+        "Principled",
+        "#b366ff",
+        roughness=1.0,
+        two_sided=True
+    ),
+    
+)
 
-print("Rendering BS...")
+
+
+
+
+
+
+
+
+print("Rendering errormap...")
 hkw.render(
     bs ,
     config,
     filename=f"rendering_results/errormaps/{PROXY_NAME}500.png",
+)
+
+
+print("Rendering plain version...")
+hkw.render(
+    plain_layer ,
+    config,
+    filename=f"rendering_results/errormaps/{PROXY_NAME}-plain-500.png",
 )

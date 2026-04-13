@@ -588,14 +588,17 @@ class BPS_fast(nn.Module):
     
 
 
-    def precompute_data_from_samples(self, x, detached=True, mobius_example=False):
+    def precompute_data_from_samples(self, x, detached=True, mobius_example=False, selected_face_indices=None, batched_wrt=False):
         print('Precomputing blend weights etc, using', self.blend_type, 'blending.')
 
-        if detached==False:
+        if detached==False and not batched_wrt:
             x.requires_grad=True
 
+        if selected_face_indices is None:
+            selected_face_indices = range(self.F.shape[0])
 
 
+        num_faces = len(selected_face_indices)
 
         all_J_proxy = torch.zeros((self.F.shape[0], 2, 2), device=self.device)   # F x 2 x 2
         all_Jc_pinv = torch.zeros((self.F.shape[0], 2, 3), device=self.device)   # F x 2 x 3
@@ -613,7 +616,7 @@ class BPS_fast(nn.Module):
         all_blend_weights_gradients = torch.zeros((self.F.shape[0], x.shape[1], 3, 2), device=self.device) # F x S x 3 x 2
             
     
-        for face_index in range(self.F.shape[0]): #loop over all faces
+        for face_index in selected_face_indices: #loop over selected faces
 
             if detached==True:
 
@@ -834,7 +837,7 @@ class BPS_fast(nn.Module):
             blend_weight = B1_bump(r_a, v=overlap_param) / ( B1_bump(r_a, v=overlap_param) + B1_bump(r_b, v=overlap_param) + B1_bump(r_c, v=overlap_param)     )
 
         elif blend_type=='radial_inv_exp':
-            blend_weight = B2_inv_exp(r_a, v=overlap_param)
+            blend_weight = B2_inv_exp_optimized(r_a, v=overlap_param)
 
         elif blend_type=='pou_inv_exp':
             blend_weight = B2_inv_exp(r_a, v=overlap_param) / ( B2_inv_exp(r_a, v=overlap_param) + B2_inv_exp(r_b, v=overlap_param) + B2_inv_exp(r_c, v=overlap_param)     )
@@ -930,6 +933,9 @@ class BPS_fast(nn.Module):
     
     def forward(self, precomputed_data, test_flag = None, select_patch_indices=None, return_unblended=False,
                degree = None):
+
+        #if selected_face_indices is None:
+        #    selected_face_indcies = range(self.F.shape[0])
      
         if degree is None: #if polynomial degree is unspecified, use the degree specified in the config file
             degree = self.degree

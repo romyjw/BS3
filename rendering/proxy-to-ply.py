@@ -34,7 +34,7 @@ def obj_to_ply_with_vertex_labels(obj_path, ply_path):
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
-        print("Usage: obj_to_ply_with_vertex_labels.py input.obj output.ply")
+        print("Usage: python proxy-to-ply.py input.obj output.ply")
         sys.exit(1)
 
     obj_path = Path(sys.argv[1])

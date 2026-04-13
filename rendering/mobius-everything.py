@@ -18,11 +18,13 @@ def mpl_discrete_colors(name, n=8):
 
 
 def random_rgb_colors(n):
-    return [tuple(c) for c in np.random.rand(n, 3)]
+    colors = [tuple(c) for c in np.random.rand(n, 3)]
+    print(colors)
+    return colors
 
 
 
-n_vertices = 168
+n_vertices = 165
 # -----------------------------------------------------------------------------
 # Filenames
 # -----------------------------------------------------------------------------
@@ -32,7 +34,8 @@ normals_surface_filename   = f"rendering_results/mobius/mobius-normals.ply"
 abs_normals_surface_filename   = f"rendering_results/mobius/mobius-abs-normals.ply"
 angle_surface_filename   = f"rendering_results/mobius/mobius-angle.ply"
 coarse_angle_surface_filename   = f"rendering_results/mobius/mobius-coarse-angle.ply"
-skeleton_filename = "../data/surfaces/mobius224.ply"
+#skeleton_filename = "../data/surfaces/mobius224.ply"
+skeleton_filename = "../data/surfaces/mobius-post-edit.ply"
 
 # -----------------------------------------------------------------------------
 # Shared rotation (DEFINE ONCE)
@@ -179,7 +182,7 @@ hkw.render(
 angle_layer = rotated (hkw.layer(angle_surface_filename).material(
     "Principled",
     color=hkw.texture.ScalarField(
-        data="angle_colours",
+        data="angle-colours",
         colormap="identity",
     ),
     two_sided=True
@@ -199,7 +202,7 @@ hkw.render(
 coarse_angle_layer = rotated (hkw.layer(coarse_angle_surface_filename).material(
     "Principled",
     color=hkw.texture.ScalarField(
-        data="angle_colours",
+        data="angle-colours",
         colormap="identity",
     ),
     two_sided=True

@@ -420,31 +420,10 @@ class BPS_visualiser():
         # build per-patch domain samples and pad to same length (P, N, 2)
         domain_samples_per_facepatch = [torch.tensor(np.asarray(facepatch.vertices)[:, :2]).float().to(self.bps.device) for facepatch in self.base_facepatches]
         max_pts = max(t.shape[0] for t in domain_samples_per_facepatch)
-
-
-
-
-        '''
-        wrt_list = []
-        for fp in self.base_facepatches:
-            t = torch.tensor(np.asarray(fp.vertices)[:, :2]).float()
-            t.requires_grad_(True) 
-            wrt_list.append(t)
-    
-        # 2. Stack them for the single precompute call
-        max_pts = max(t.shape[0] for t in wrt_list)
-        # Note: Using torch.stack here creates a graph node that links back to the individual leaves in wrt_list
-        wrt = torch.stack([torch.nn.functional.pad(t, (0, 0, 0, max_pts - t.shape[0])) for t in wrt_list])
-        '''
-
         wrt = torch.stack([torch.nn.functional.pad(t, (0, 0, 0, max_pts - t.shape[0])) for t in domain_samples_per_facepatch])
+
         wrt.requires_grad = True
-
-
-
-
-
-        precomputed_data = self.bps.precompute_data_from_samples(wrt, detached=False, mobius_example=self.mobius_example, batched_wrt=True) #not computing the gradient because it's not needed (detached=False_
+        precomputed_data = self.bps.precompute_data_from_samples(wrt, detached=False, mobius_example=self.mobius_example) #not computing the gradient because it's not needed (detached=False_
 
         if degree ==  None:
             degree = self.bps.degree
@@ -488,7 +467,7 @@ class BPS_visualiser():
         # Normals (batch)
         if ('normals' in settings) or ('abs-normals' in settings):
             print("computing normals...")
-            normals_batch = self.diffmod.compute_normals(out=output_points, wrt=wrt)  # expect (P,N,3)
+            normals_batch = self.diffmod.compute_normals(out=output_points[0,:,:], wrt=wrt[0,:,:])  # expect (P,N,3)
             normals_batch = normals_batch.reshape(num_facepatches, n_points_per_patch, 3).to(dtype)
             all_normals = normals_batch.clone()
 
@@ -527,102 +506,8 @@ class BPS_visualiser():
         self.coarse_facepatches = [self._create_mesh(coarse_embedding[i], facepatch_faces[i]) for i in range(num_facepatches)]
         self.unblended_facepatches = self._create_unblended_meshes(unblended_points, facepatch_faces)
 
-    '''
-    def compute_quantities(self, settings=['default'], degree=None, batch_size=32):
-        if degree is None:
-            degree = self.bps.degree
-        
-        num_facepatches = len(self.bps.F)
-        device = self.bps.device
-        
-        # 1. Prepare domain samples (Keep as list of arrays for now to save VRAM)
-        domain_samples = [np.asarray(p.vertices)[:, :2] for p in self.base_facepatches]
-        max_pts = max(t.shape[0] for t in domain_samples)
-
-        # 2. Pre-allocate NumPy containers on CPU
-        self.normals = np.zeros((self.bps.F.shape[0], max_pts, 3))
-        self.meancurv = np.zeros((self.bps.F.shape[0], max_pts))
-        self.gausscurv = np.zeros((self.bps.F.shape[0], max_pts))
-        self.output_np = np.zeros((self.bps.F.shape[0], max_pts, 3))
-
     
-        # 3. Batch Processing
-        for i in range(0, num_facepatches, batch_size):
-            indices = list(range(i, min(i + batch_size, num_facepatches)))
-            
-            # --- THE CRITICAL PART ---
-            # Create a fresh batch tensor from the subset of domain samples
-            batch_wrt_raw = [torch.tensor(domain_samples[idx]).float() for idx in indices]
-            batch_wrt = torch.stack([
-                torch.nn.functional.pad(t, (0, 0, 0, max_pts - t.shape[0])) 
-                for t in batch_wrt_raw
-            ]).to(device)
-            
-            # Explicitly enable grad on THIS specific batch slice
-            batch_wrt.requires_grad_(True)
 
-            print('batch wrt', batch_wrt.shape)
-            
-            # Now precompute data ONLY for this batch to save massive VRAM
-            # This prevents the 'precomputed_data_full' from holding the whole mesh graph
-            batch_precomputed = self.bps.precompute_data_from_samples(batch_wrt, detached=False, selected_face_indices = range(i*batch_size, (i+1)*batch_size))
-            
-            # 4. Forward Pass
-            pts, _ = self.bps.forward(batch_precomputed, degree=degree, return_unblended=True)
-
-
-            
-            
-            # --- Visualisation Block Start ---
-            # 1. Flatten the batch: (B, N, 3) -> (B*N, 3)
-            print('pts shape', pts.shape)
-            flat_pts = pts.detach().cpu().reshape(-1, 3).numpy()
-            
-            # 2. Create the Open3D PointCloud object
-            pcd = o3d.geometry.PointCloud()
-            pcd.points = o3d.utility.Vector3dVector(flat_pts)
-            
-            # 3. Optional: Give them a color (light blue) to make them easier to see
-            pcd.paint_uniform_color([0.4, 0.7, 1.0])
-            
-            # 4. Optional: Estimate normals for better shading in the viewer
-            pcd.estimate_normals()
-            
-            print(f"Visualising batch of {flat_pts.shape[0]} points...")
-            o3d.visualization.draw_geometries([pcd], 
-                                              window_name="Batch Point Visualization",
-                                              width=800, height=600)
-            # --- Visualisation Block End ---
-
-
-
-
-
-
-
-            
-            
-            # 5. Compute Curvature/Normals with the active batch graph
-            if 'normals' in settings:
-                # diffmod will now see the direct relationship between pts and batch_wrt
-                batch_norms = self.diffmod.compute_normals(out=pts, wrt=batch_wrt)
-                # Correcting normals (make sure this function supports batched input)
-                batch_norms = self._correct_vertex_normals(batch_norms, batch_wrt, indices)
-                self.normals[indices] = batch_norms.detach().cpu().numpy()
-     
-            if 'curv' in settings:
-                H, K = self.diffmod.compute_curvature(out=pts, wrt=batch_wrt)
-                H, K = self._correct_vertex_curvatures(H, K, batch_wrt, indices)
-                self.meancurv[indices] = H.detach().cpu().numpy()
-                self.gausscurv[indices] = K.detach().cpu().numpy()
-
-            print(indices, pts.shape)
-            self.output_np[indices] = pts.detach().cpu().numpy()
-    
-            # 6. Explicit Cleanup
-            del pts, batch_precomputed, batch_wrt
-            if device.type == 'mps': torch.mps.empty_cache()
-    '''
 
 
     def show_bps(self, settings=['default'], vertex_id=0, patch_id=0, output_dir = 'rendering/rendering_results/', show_on_coarse=False):

@@ -89,6 +89,9 @@ if mobius_example==True:
 
 
 
+
+if not 'num_bdry_samples_per_edge' in training_config.keys():
+    training_config['num_bdry_samples_per_edge'] = 0
 # -------------------------------
 # Sample generation
 # -------------------------------

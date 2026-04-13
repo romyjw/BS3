@@ -243,12 +243,12 @@ class Djuren_surface():
         
                     j = onering['triangles'].index(face_index)
     
-                    eps = 1e-12
-                    tol = 1e-12
+                    eps = 1e-9
+                    tol = 1e-9
                     
-                    A = (bary[:,(i+1)%3] * bary[:,(i+2)%3])**exponent
-                    B = (bary[:,(i+0)%3] * bary[:,(i+2)%3])**exponent
-                    C = (bary[:,(i+0)%3] * bary[:,(i+1)%3])**exponent
+                    A = (bary[:,(i+1)%3] * bary[:,(i+2)%3])**djuren_exponent
+                    B = (bary[:,(i+0)%3] * bary[:,(i+2)%3])**djuren_exponent
+                    C = (bary[:,(i+0)%3] * bary[:,(i+1)%3])**djuren_exponent
                     
                     den = A + B + C + eps
                     

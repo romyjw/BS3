@@ -122,6 +122,155 @@ def rotation_matrix_axis_angle(axis, theta):
 #    return result
 
 
+
+
+'''
+class InvExpFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x):
+        ctx.save_for_backward(x)
+        res = torch.zeros_like(x)
+        mask = x > 0
+        res[mask] = torch.exp(-1.0 / x[mask])
+        return res
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        x, = ctx.saved_tensors
+        
+        # 1. Handle the division safely to avoid NaNs for x <= 0 
+        # (even if they'll be masked out later)
+        safe_x = torch.where(x > 0, x, torch.ones_like(x))
+        
+        # 2. Compute the derivative: exp(-1/x) * (1/x^2)
+        # We compute this for all values, but x <= 0 will be suppressed
+        fx = torch.exp(-1.0 / safe_x)
+        grad_val = fx * (1.0 / (safe_x ** 2))
+        
+        # 3. Use torch.where instead of in-place mask assignment
+        # This is functional and compatible with vmap/jacobian calls
+        grad_input = torch.where(x > 0, grad_output * grad_val, torch.zeros_like(x))
+        
+        return grad_input
+
+
+def f_optimized(x):
+    return InvExpFunction.apply(x)
+
+# Update your g(x) to use the optimized version
+def g_optimized(x):
+    f1 = f_optimized(x)
+    f2 = f_optimized(-x + 1)
+    return f1 / (f1 + f2)
+
+def B2_inv_exp_optimized(x, v=0.7):
+    a = 0.5 - v/2
+    return g_optimized((x - a) / (-2 * a + 1))
+
+
+
+
+
+
+
+
+class InvExpFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x):
+        # We perform the math but suppress zeros to avoid log(0) errors
+        mask = x > 0
+        res = torch.zeros_like(x)
+        res[mask] = torch.exp(-1.0 / x[mask])
+        ctx.save_for_backward(x, res)
+        return res
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        x, res = ctx.saved_tensors
+        # f'(x) = f(x) * (1 / x^2)
+        # We use the 'res' (f(x)) from forward to save a whole exp() calculation
+        grad_val = torch.where(x > 0, res / (x**2), torch.zeros_like(x))
+        return grad_output * grad_val
+
+# Apply this to your g(x) logic
+
+
+
+
+def g_poly(x):
+    """ 
+    A 7th-degree polynomial approximation of the smooth transition.
+    It has zero 1st, 2nd, and 3rd derivatives at the endpoints (0 and 1), 
+    mimicking the 'flatness' of the exponential version.
+    """
+    x = x.clamp(0, 1)
+    # -20x^7 + 70x^6 - 84x^5 + 35x^4
+    return x**4 * (x * (x * (x * -20 + 70) - 84) + 35)
+
+def B2_poly_optimized(x, v=0.7):
+    a = 0.5 - v/2
+    return g_poly((x - a) / (-2 * a + 1))
+'''
+
+
+
+import torch
+
+def f(x):
+    mask = x > 0
+    
+    # 1. Create a safe version of x to prevent division-by-zero or NaNs 
+    # during the forward and backward pass for elements where x <= 0.
+    x_safe = torch.where(mask, x, torch.ones_like(x))
+    
+    # 2. Compute the exponential globally, but safely.
+    y = torch.exp(-1.0 / x_safe)
+    
+    # 3. Use torch.where to apply the mask element-wise. 
+    # This completely avoids memory-heavy masked_scatter operations in autograd.
+    return torch.where(mask, y, torch.zeros_like(x))
+
+def g(x):
+    # 4. Cache the results of the functions. 
+    # This builds the autograd subgraph for f(-x + 1) only once instead of twice.
+    fx = f(x)
+    f_inv = f(-x + 1.0)
+    
+    return f_inv / (fx + f_inv)
+
+def B0_linear(x, v=None):
+    return (-torch.abs(x) + 1.0).clamp(0.0, 1.0)
+
+def B2_inv_exp(x, v=0.7):
+    a = 0.5 - v / 2.0
+    return g((x - a) / (-2.0 * a + 1.0))
+
+def B2_inv_exp_even(x, v=0.7):
+    return B2_inv_exp(torch.abs(x), v=v)
+    
+def trig_interp(x):
+    x_clamped = x.clamp(0.0, 1.0)
+    return torch.cos(x_clamped * (torch.pi / 2.0)) ** 2
+
+def B3_trig(x, v=0.7):
+    a = 0.5 - v / 2.0
+    return trig_interp((x - a) / (-2.0 * a + 1.0))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
+'''
 def f(x):
     result = torch.zeros_like(x)
     mask = x > 0
@@ -154,7 +303,7 @@ def trig_interp(x):
 def B3_trig(x, v=0.7):
     a = 0.5 - v/2
     return trig_interp( (x-a) / (-2*a + 1) )
-
+'''
 
 
 

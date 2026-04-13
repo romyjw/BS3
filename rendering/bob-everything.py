@@ -15,7 +15,14 @@ import lagrange
 
 proxy_filename = "bob500"
 
+meancurv_inv_exp_surface_filename   = f"rendering_results/curvature/bob-inv-exp/meancurv.ply"
+gausscurv_inv_exp_surface_filename   = f"rendering_results/curvature/bob-inv-exp/gausscurv.ply"
+
+meancurv_trig_surface_filename   = f"rendering_results/curvature/bob-trig/meancurv.ply"
+gausscurv_trig_surface_filename   = f"rendering_results/curvature/bob-trig/gausscurv.ply"
+
 blended_surface_filename   = f"rendering_results/teaser/{proxy_filename}/normals.ply"
+
 unblended_surface_filename = f"rendering_results/teaser/{proxy_filename}/unblended.ply"
 mc_surface_filename = f"rendering_results/teaser/{proxy_filename}/mc.ply"
 
@@ -170,13 +177,76 @@ unblended_layer = rotated(
         "#27A3F5",
         roughness=1.0,
         two_sided=True
-    )
+    ),
 )
+
+
+
+
+meancurv_inv_exp = rotated(
+    hkw.layer(meancurv_inv_exp_surface_filename).material(
+    "Principled",
+    color=hkw.texture.ScalarField(
+        data="meancurv_colours",
+        colormap="identity",
+    ),
+))
+
+meancurv_trig = rotated(
+    hkw.layer(meancurv_trig_surface_filename).material(
+    "Principled",
+    color=hkw.texture.ScalarField(
+        data="meancurv_colours",
+        colormap="identity",
+    ),
+))
+
+gausscurv_inv_exp = rotated(
+    hkw.layer(gausscurv_inv_exp_surface_filename).material(
+    "Principled",
+    color=hkw.texture.ScalarField(
+        data="gausscurv_colours",
+        colormap="identity",
+    ),
+))
+
+gausscurv_trig = rotated(
+    hkw.layer(gausscurv_trig_surface_filename).material(
+    "Principled",
+    color=hkw.texture.ScalarField(
+        data="gausscurv_colours",
+        colormap="identity",
+    ),
+))
 
 
 # -----------------------------------------------------------------------------
 # Render
 # -----------------------------------------------------------------------------
+
+curvature_layers = {
+    'meancurv_inv_exp': meancurv_inv_exp,
+    'gausscurv_inv_exp': gausscurv_inv_exp,
+    'meancurv_trig': meancurv_trig,
+    'gausscurv_trig': gausscurv_trig
+}
+
+
+for layerstring,layer in curvature_layers.items():
+    hkw.render(
+    layer,
+    config,
+    filename=f"rendering_results/main-results/{proxy_filename}/{layerstring}.png",
+)
+
+
+
+
+
+
+
+
+
 
 hkw.render(
     mc_layers,
