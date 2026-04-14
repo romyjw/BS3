@@ -470,7 +470,7 @@ class Djuren_surface():
             
         return output
 
-
+    '''
     def build_output_surface(self, colour_flag = 'angles'):
         
     
@@ -531,22 +531,173 @@ class Djuren_surface():
         # Concatenate global arrays
         # ------------------------------------------------------------
         V_all = torch.cat(vertices_list, dim=0).cpu().numpy()
-        
         C_all = torch.cat(colors_list, dim=0).cpu().numpy()
-        
         F_all = np.vstack(faces_list)
-    
+
+        # ============================================================
+        # WELD VERTICES (Sewing the disjoint patches into a manifold)
+        # ============================================================
+        # Set tolerance by defining decimal precision (e.g., 5 means 1e-5 tolerance)
+        tolerance_decimals = 3 
+        V_rounded = np.round(V_all, tolerance_decimals)
+        
+        # Find the unique vertices. 
+        # return_index keeps the original unrounded float data.
+        # return_inverse gives us the map to rewire our faces.
+        _, unique_indices, inverse_indices = np.unique(
+            V_rounded, axis=0, return_index=True, return_inverse=True
+        )
+        
+        # Rebuild the vertex and color arrays without the duplicates
+        V_welded = V_all[unique_indices]
+        C_welded = C_all[unique_indices]
+        
+        # Rewire the face indices to point to the new unified vertices
+        F_welded = inverse_indices[F_all]
+        # ============================================================
+
         # ------------------------------------------------------------
         # Build meshes
         # ------------------------------------------------------------
-        mesh_o3d_coloured = make_mesh(V_all, F_all, C_all)         # proper
-        mesh_o3d_plain = make_mesh(V_all, F_all, None) 
+        # Now passing in our welded (manifold) geometry!
+        mesh_o3d_coloured = make_mesh(V_welded, F_welded, C_welded)         
+        mesh_o3d_plain = make_mesh(V_welded, F_welded, None) 
 
         unblended_patches = [make_mesh(self.vertex_funcs[f_i, k, :,:], base_faces, None) for f_i in range(self.F.shape[0]) for k in range(3)]
+
+        return mesh_o3d_coloured, mesh_o3d_plain, unblended_patches
+    '''
+
+
+
+    def build_output_surface(self, colour_flag='angles'):
         
+        def make_mesh(vertices, faces, colors=None):
+            mesh = o3d.geometry.TriangleMesh()
+            mesh.vertices = o3d.utility.Vector3dVector(vertices)
+            mesh.triangles = o3d.utility.Vector3iVector(faces)
+            if colors is not None:
+                mesh.vertex_colors = o3d.utility.Vector3dVector(colors)
+            mesh.compute_vertex_normals()
+            return mesh
+
+        base_faces = np.asarray(self.base_facepatch.triangles)
+        
+        # ------------------------------------------------------------
+        # 1. Setup Integer Barycentrics for Topological Indexing
+        # ------------------------------------------------------------
+        # Get float barycentric coordinates for the base patch (Shape: S x 3)
+        bary = torch.stack([self.bary_weight(self.x, i) for i in range(3)]).transpose(1, 0).cpu().numpy()
+        S = bary.shape[0]
+        
+        # Calculate subdivision level (R) from the number of samples (S)
+        # Formula derived from S = (R+1)(R+2)/2
+        R = int(np.round((-3 + np.sqrt(9 + 8 * (S - 1))) / 2))
+        
+        # Convert float barycentrics to exact integer grid coordinates
+        int_bary = np.round(bary * R).astype(int)
+        
+        hash_to_global_id = {}
+        global_V = []
+        global_C = []
+        global_faces = []
+
+        if colour_flag == 'angles':
+            cmap = plt.cm.hsv
+        else:
+            cmap = plt.cm.flag
+
+        # ------------------------------------------------------------
+        # 2. Iterate and Hash Geometry
+        # ------------------------------------------------------------
+        for f_i in range(self.F.shape[0]):
+            W = self.blend_weights[f_i].cpu().numpy()       
+            V_patch = self.output[f_i, :, :].detach().cpu().numpy()
+            
+            # Prepare Colors
+            if colour_flag == 'angles':
+                C_patch = np.einsum(
+                    'sp,psc->sc',
+                    W,
+                    cmap(self.angles[f_i, :, :].cpu().numpy() / (2 * np.pi))[:, :, :-1]
+                )
+            elif colour_flag == 'blend':
+                C_patch = np.zeros_like(W)
+                for k in range(3):
+                    if self.F[f_i][k] == 0:
+                        C_patch[:, :] = cmap(W[:, k])[:, :3]
+            else:
+                C_patch = np.zeros_like(W)
+
+            coarse_v = self.F[f_i]  # Global IDs for [v0, v1, v2]
+            local_to_global = {}
+            
+            for s in range(S):
+                u, v, w = int_bary[s]
+                v0, v1, v2 = coarse_v[0], coarse_v[1], coarse_v[2]
+                
+                # --- TOPOLOGICAL HASHING ---
+                # 1. Is it a corner vertex?
+                if u == R:   sig = f"V_{v0}"
+                elif v == R: sig = f"V_{v1}"
+                elif w == R: sig = f"V_{v2}"
+                
+                # 2. Is it on a shared edge?
+                # We identify the edge using min/max global vertex IDs to ensure adjacent faces match perfectly.
+                # 'dist' locks the barycentric weight to the minimum vertex ID to ensure orientation independence.
+                elif u == 0:
+                    min_v, max_v = min(v1, v2), max(v1, v2)
+                    dist = v if min_v == v1 else w
+                    sig = f"E_{min_v}_{max_v}_{dist}"
+                elif v == 0:
+                    min_v, max_v = min(v0, v2), max(v0, v2)
+                    dist = u if min_v == v0 else w
+                    sig = f"E_{min_v}_{max_v}_{dist}"
+                elif w == 0:
+                    min_v, max_v = min(v0, v1), max(v0, v1)
+                    dist = u if min_v == v0 else v
+                    sig = f"E_{min_v}_{max_v}_{dist}"
+                    
+                # 3. It's an interior face point
+                else:
+                    sig = f"F_{f_i}_{u}_{v}_{w}"
+                
+                # --- MAP TO GLOBAL ARRAYS ---
+                if sig not in hash_to_global_id:
+                    hash_to_global_id[sig] = len(global_V)
+                    global_V.append(V_patch[s])
+                    global_C.append(C_patch[s])
+                
+                local_to_global[s] = hash_to_global_id[sig]
+                
+            # --- REWIRE BASE FACES ---
+            for bf in base_faces:
+                global_faces.append([
+                    local_to_global[bf[0]], 
+                    local_to_global[bf[1]], 
+                    local_to_global[bf[2]]
+                ])
+                
+        # ------------------------------------------------------------
+        # 3. Build Final Manifold Meshes
+        # ------------------------------------------------------------
+        V_welded = np.array(global_V)
+        C_welded = np.array(global_C)
+        F_welded = np.array(global_faces)
+        
+        mesh_o3d_coloured = make_mesh(V_welded, F_welded, C_welded)         
+        mesh_o3d_plain = make_mesh(V_welded, F_welded, None) 
+
+        unblended_patches = [
+            make_mesh(self.vertex_funcs[f_i, k, :, :].detach().cpu().numpy(), base_faces, None) 
+            for f_i in range(self.F.shape[0]) for k in range(3)
+        ]
 
         return mesh_o3d_coloured, mesh_o3d_plain, unblended_patches
 
+
+
+        
 
     
     def onering_coords_func(self, x, i, j, vtx_idx, verts=None, flag='equal'):

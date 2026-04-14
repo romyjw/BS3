@@ -15,6 +15,10 @@ import lagrange
 
 proxy_filename = "bob500"
 
+
+meancurv_djuren_surface_filename   = f"rendering_results/curvature/bob-djuren/meancurv.ply"
+
+
 meancurv_inv_exp_surface_filename   = f"rendering_results/curvature/bob-inv-exp/meancurv.ply"
 gausscurv_inv_exp_surface_filename   = f"rendering_results/curvature/bob-inv-exp/gausscurv.ply"
 
@@ -39,6 +43,12 @@ ROT_ANGLE = math.pi / 6
 config = hkw.config()
 config.sensor.location = [0, 2, 3]
 config.integrator = hkw.setup.integrator.VolPath()
+
+# Generate 4K rendering.
+config.film.width = 3840
+config.film.height = 2160
+
+
 
 
 def rotated(layer):
@@ -181,7 +191,14 @@ unblended_layer = rotated(
 )
 
 
-
+meancurv_djuren = rotated(
+    hkw.layer(meancurv_djuren_surface_filename).material(
+    "Principled",
+    color=hkw.texture.ScalarField(
+        data="meancurv_colours",
+        colormap="identity",
+    ),
+))
 
 meancurv_inv_exp = rotated(
     hkw.layer(meancurv_inv_exp_surface_filename).material(
@@ -225,6 +242,7 @@ gausscurv_trig = rotated(
 # -----------------------------------------------------------------------------
 
 curvature_layers = {
+    'meancurv_djuren': meancurv_djuren,
     'meancurv_inv_exp': meancurv_inv_exp,
     'gausscurv_inv_exp': gausscurv_inv_exp,
     'meancurv_trig': meancurv_trig,
