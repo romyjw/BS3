@@ -328,6 +328,30 @@ class BPS_visualiser():
     
         return all_normals
 
+
+
+    def show_cbar(self, mapping, cmap, filename="output/colorbar.png", horizontal=False):
+    
+        values = mapping(np.linspace(0, 1, 256), invert=True)
+        sm = ScalarMappable(cmap=cmap)
+        sm.set_array(values)
+
+        if horizontal==False:
+            fig, ax = plt.subplots(figsize=(1, 5))
+            fig.colorbar(sm, cax=ax)
+            plt.savefig(filename, bbox_inches='tight', dpi=300)
+            plt.close()
+        else:
+            # Swap the dimensions for a horizontal layout
+            fig, ax = plt.subplots(figsize=(5, 1)) 
+            # Tell matplotlib to lay it out horizontally
+            fig.colorbar(sm, cax=ax, orientation='horizontal')
+            plt.savefig(filename, bbox_inches='tight', dpi=300)
+            plt.close()
+
+
+
+            
     def _correct_vertex_curvatures(
         self,
         H: torch.Tensor,
@@ -780,8 +804,8 @@ class BPS_visualiser():
                     
     
                     
-                    #self.show_cbar(self.gausscurv_mapping, self.gausscurv_cmap, filename='output/gausscurv_cbar.png')
-                    #self.show_cbar(self.meancurv_mapping, self.meancurv_cmap, filename='output/meancurv_cbar.png')
+                self.show_cbar(self.gausscurv_mapping, self.gausscurv_cmap, filename='output/gausscurv_cbar.png', horizontal=True)
+                self.show_cbar(self.meancurv_mapping, self.meancurv_cmap, filename='output/meancurv_cbar.png', horizontal=True)
 
             if 'blend' in settings:
 
@@ -1083,16 +1107,26 @@ class Elastic_energy_visualiser():
         self.vertex_area_ratios = np.stack(vertex_area_ratios)   # list of (Vi,) arrays
         
 
-    def show_cbar(self, mapping, cmap, filename="output/colorbar.png"):
+    def show_cbar(self, mapping, cmap, filename="output/colorbar.png", horizontal=False):
     
         values = mapping(np.linspace(0, 1, 256), invert=True)
         sm = ScalarMappable(cmap=cmap)
         sm.set_array(values)
-    
-        fig, ax = plt.subplots(figsize=(1, 5))
-        fig.colorbar(sm, cax=ax)
-        plt.savefig(filename, bbox_inches='tight', dpi=300)
-        plt.close()
+
+        if horizontal==False:
+            fig, ax = plt.subplots(figsize=(1, 5))
+            fig.colorbar(sm, cax=ax)
+            plt.savefig(filename, bbox_inches='tight', dpi=300)
+            plt.close()
+        else:
+            # Swap the dimensions for a horizontal layout
+            fig, ax = plt.subplots(figsize=(5, 1)) 
+            # Tell matplotlib to lay it out horizontally
+            fig.colorbar(sm, cax=ax, orientation='horizontal')
+            plt.savefig(filename, bbox_inches='tight', dpi=300)
+            plt.close()
+            
+            
     
   
 

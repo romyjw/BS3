@@ -45,8 +45,8 @@ config.sensor.location = [0, 2, 3]
 config.integrator = hkw.setup.integrator.VolPath()
 
 # Generate 4K rendering.
-config.film.width = 3840
-config.film.height = 2160
+#config.film.width = 3840
+#config.film.height = 2160
 
 
 
@@ -129,11 +129,10 @@ all_skeleton_layers = (
 )
 
 
-
-
+'''
 ########## mc layers #######################
 
- 
+
 mc_surface = lagrange.io.load_mesh(mc_surface_filename)
 
 mc_base = rotated(
@@ -156,7 +155,7 @@ mc_edges = (
 # Combine MC layers
 mc_layers = mc_base + mc_edges
 
-
+'''
 
 
 
@@ -241,6 +240,9 @@ gausscurv_trig = rotated(
 # Render
 # -----------------------------------------------------------------------------
 
+
+
+'''
 curvature_layers = {
     'meancurv_djuren': meancurv_djuren,
     'meancurv_inv_exp': meancurv_inv_exp,
@@ -257,21 +259,19 @@ for layerstring,layer in curvature_layers.items():
     filename=f"rendering_results/main-results/{proxy_filename}/{layerstring}.png",
 )
 
+'''
 
 
 
 
 
-
-
-
-
+'''
 hkw.render(
     mc_layers,
     config,
     filename=f"rendering_results/teaser/{proxy_filename}/mc.png",
 )
-
+'''
 
 hkw.render(
     all_skeleton_layers,

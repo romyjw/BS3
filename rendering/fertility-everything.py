@@ -15,7 +15,7 @@ import lagrange
 
 proxy_filename = "fertility500"
 
-blended_surface_filename   = f"rendering_results/param/{proxy_filename}/normals.ply"
+blended_surface_filename   = f"rendering_results/teaser/{proxy_filename}/normals.ply"
 unblended_surface_filename = f"rendering_results/teaser/{proxy_filename}/unblended.ply"
 mc_surface_filename = f"rendering_results/teaser/{proxy_filename}/mc.ply"
 
@@ -119,7 +119,7 @@ all_skeleton_layers = (
 
 ########## mc layers #######################
 
- 
+'''
 mc_surface = lagrange.io.load_mesh(mc_surface_filename)
 
 mc_base = rotated(
@@ -142,7 +142,7 @@ mc_edges = (
 # Combine MC layers
 mc_layers = mc_base + mc_edges
 
-
+'''
 
 
 
@@ -183,13 +183,13 @@ unblended_layer = rotated(
 # Render
 # -----------------------------------------------------------------------------
 
-
+'''
 hkw.render(
     mc_layers,
     config,
     filename=f"rendering_results/teaser/{proxy_filename}/mc.png",
 )
-
+'''
 
 
 hkw.render(
