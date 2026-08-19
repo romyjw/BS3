@@ -913,3 +913,24 @@ def stringify_config(cfg, float_precision=3):
         f"___train__{training}"
     )
 
+
+def export_proxy_mesh(obj_path, out_dir, name="proxy"):
+    """
+    Copy the proxy (coarse control) mesh into out_dir as "<name>.obj" (same
+    plain copy cell 20 already did for the training-results folder, just
+    reusable). Deliberately has no lagrange/hakowan dependency -- those are
+    reserved for the rendering/*-everything.py scripts, which run in a
+    different environment; this runs from the notebook.
+    """
+    import shutil
+    from pathlib import Path
+
+    obj_path = Path(obj_path)
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    obj_out = out_dir / f"{name}.obj"
+    shutil.copy2(obj_path, obj_out)
+
+    return obj_out
+

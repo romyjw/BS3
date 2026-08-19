@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blended Chart Surfaces</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 15px;
+            line-height: 1.5;
+            color: #333;
+            max-width: 860px;
+            margin: 0 auto;
+            padding: 16px;
+            background-color: #f4f7f6;
+        }
+        header {
+            background-color: #ffffff;
+            padding: 18px 22px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 16px;
+        }
+        .header-layout {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 20px;
+        }
+        .header-text {
+            flex: 1;
+        }
+        h1 {
+            color: #2c3e50;
+            margin-top: 0;
+            margin-bottom: 8px;
+            font-size: 1.5em;
+            line-height: 1.3;
+        }
+        h2 {
+            color: #2980b9;
+            border-bottom: 2px solid #ecf0f1;
+            padding-bottom: 6px;
+            margin-top: 0;
+            margin-bottom: 12px;
+            font-size: 1.25em;
+        }
+        .authors {
+            font-size: 0.95em;
+            color: #7f8c8d;
+            font-style: italic;
+        }
+        .links-container {
+            margin-top: 12px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .link-btn {
+            background-color: #2980b9;
+            color: #ffffff;
+            padding: 7px 12px;
+            text-decoration: none;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 0.82em;
+            transition: background-color 0.3s;
+        }
+        .link-btn:hover {
+            background-color: #1c5980;
+        }
+        .link-btn.disabled {
+            background-color: #95a5a6;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+        .abstract {
+            background-color: #e8f4f8;
+            padding: 14px 16px;
+            border-left: 5px solid #2980b9;
+            border-radius: 4px;
+            font-size: 0.95em;
+        }
+        .teaser-figure,
+        .topology-figure {
+            margin: 20px 0;
+            text-align: center;
+            background: #ffffff;
+            padding: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+        .teaser-figure {
+            flex-shrink: 0;
+            width: 200px;
+            margin: 0;
+        }
+        .topology-figure {
+            width: 50%;
+            max-width: 420px;
+            margin: 20px auto;
+        }
+        .oneRing-figure {
+            width: 75%;
+            max-width: 640px;
+            margin: 20px auto;
+        }
+        .results-figure {
+            width: 100%;
+            margin: 20px auto;
+        }
+        .teaser-figure img,
+        .topology-figure img,
+        .oneRing-figure img,
+        .results-figure img {
+            max-width: 100%;
+            height: auto;
+            display: block;
+            border-radius: 0;
+            background: #fff;
+        }
+        .teaser-figure img {
+            width: 100%;
+            height: auto;
+            object-fit: contain;
+        }
+        .topology-figure img,
+        .oneRing-figure img,
+        .results-figure img {
+            width: 100%;
+            display: block;
+            margin: 0 auto;
+        }
+        .topology-layout .topology-figure {
+            width: 100%;
+            max-width: 560px;
+        }
+        .topology-layout {
+            display: grid;
+            grid-template-columns: 1.3fr 0.7fr;
+            gap: 20px;
+            align-items: center;
+        }
+        section {
+            background-color: #ffffff;
+            padding: 16px 22px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 16px;
+        }
+        ul {
+            padding-left: 20px;
+            margin: 8px 0;
+        }
+        li {
+            margin-bottom: 6px;
+        }
+        section p {
+            margin: 10px 0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            border: 1px solid #bdc3c7;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #ecf0f1;
+            color: #2c3e50;
+        }
+        .reference-file {
+            background-color: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            border-radius: 4px;
+            text-align: center;
+            font-weight: bold;
+        }
+        code {
+            background-color: #1a252f;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="header-layout">
+            <div class="header-text">
+                <h1>Blended Chart Surfaces: A Seamless Explicit Representation for Smooth Surface Fitting</h1>
+                <p class="authors">Romy Williamson (UCL) and Niloy Mitra (UCL, Adobe)</p>
+                
+                <div class="links-container">
+                    <a href="resources/paper.pdf" class="link-btn">📄 Paper (PDF)</a>
+                    <a href="resources/supp.pdf" class="link-btn">📑 Supplementary Material (PDF)</a>
+                    <a href="#" class="link-btn disabled">💻 Code (Coming soon)</a>
+                </div>
+            </div>
+
+            <figure class="teaser-figure">
+                <img src="resources/figures/blendedSurface_teaser.png" alt="Blended Chart Surfaces teaser image" />
+            </figure>
+        </div>
+    </header>
+
+    <section>
+        <h2>Abstract</h2>
+        <p class="abstract">A surface representation suitable for geometry processing should be compact and explicit, provide global smoothness guarantees, support a wide range of surface topologies, and offer reliable access to differential quantities such as normals and surface energies, while remaining compatible with modern differentiable optimization. Yet existing neural representations typically sacrifice one or more of these properties. We introduce Blended Chart Surfaces (BCS), a compact, network-free, explicit representation that is smooth by construction and anchored to user-provided topology. Given a coarse proxy mesh encoding the intended surface topology and approximate geometry, Blended Chart Surfaces jointly optimize for a polynomial map at each proxy vertex using an off-the-shelf optimizer to fit to an implicit target shape, avoiding the need for an input parametrization.</p>
+    </section>
+
+        <section>
+        <h2>Results</h2>
+        <p>We show example Blended Chart Surfaces fit to Igea, Bob, and a 'twisted torus'. For each, we display the coarse proxy mesh, the unblended per-vertex polynomial patches, the resulting blended surface, and an error map (the absolute of the target implicit field value). Reconstructions are strongest on smoother shapes like Bob and the twisted torus, with slightly more error on highly detailed geometry like Igea.</p>
+        <figure class="results-figure">
+            <img src="resources/figures/results_plate.png" alt="Result gallery showing Blended Chart Surfaces fit to Igea, Bob, and a twisted torus, with proxy meshes, unblended patches, blended surfaces, and error maps" />
+        </figure>
+        <p>Refer to the paper for a comparison against Interpolating Splines (Djuren et al.), a closely related prior method that was designed for interpolation rather than fitting.</p>
+        
+    </section>
+
+    <section>
+        <h2>Features</h2>
+        <ul>
+            <li>A compact, explicit surface representation</li>
+            <li>Global smoothness guarantees</li>
+            <li>Enables end-to-end optimization and surface fitting</li>
+            <li>No global parametrization required as input</li>
+            <li>Naturally supports difficult topologies such as higher genus and non-orientable surfaces</li>
+            <li>Admits progressive levels of detail by increasing polynomial degree (e.g., constant, linear, quadratic, cubic)</li>
+        </ul>
+    </section>
+
+    
+
+    <section>
+        <h2>Method Overview</h2>
+        <p>We build a smooth curve or surface on top of a coarse proxy &mdash; a polyline for curves, a triangle mesh for surfaces &mdash; even though that proxy is usually non-smooth, with corners and sharp edges. We focus on &ldquo;function&rdquo; continuity rather than &ldquo;geometric&rdquo; continuity (see Supplemental B.9 for the distinction).</p>
+        <p>Each proxy vertex gets its own <em>vertex function</em>, a low-degree polynomial. Neighboring vertex functions are stitched together with <em>transition maps</em> and <em>blending functions</em> that guarantee smoothness across overlaps by construction.</p>
+        <p>The proxy fixes the topology and rough shape; the fine details come from directly optimizing the vertex functions with Adam [Kingma&nbsp;&amp;&nbsp;Ba 2015] against a target implicit surface (e.g., an SDF or a neural implicit field) &mdash; without needing a precomputed parametrization.</p>
+        <figure class="oneRing-figure">
+            <img src="resources/figures/oneRing_coordinates.png" alt="One-ring coordinates used by the vertex functions and blending weights" />
+        </figure>
+    </section>
+
+
+    <section>
+        <h2>Diverse Topology</h2>
+        <div class="topology-layout">
+            <div>
+                <p>Our representation naturally accommodates difficult topologies such as open boundaries and non-orientable surfaces. The proxy mesh encodes the intended surface topology and approximate geometry, while the local polynomial patches are blended through partition-of-unity weights to recover a smooth global surface without requiring a global parametrization.</p>
+                <p>The Möbius strip example illustrates this flexibility, demonstrating that Blended Chart Surfaces extend beyond simple closed manifolds and support topology-aware fitting in challenging configurations.</p>
+            </div>
+            <figure class="topology-figure">
+                <img src="resources/figures/mobius_col.png" alt="Möbius strip topology example" />
+            </figure>
+        </div>
+    </section>
+
+
+    <section>
+        <h2>Progressive Levels of Detail</h2>
+        <p>Since vertex functions are just polynomials, their degree gives a natural level-of-detail hierarchy. Here we fit Igea with cubic vertex functions and then truncate the coefficients down to quadratic, linear, and constant-only variants: constant terms alone are too coarse and leave visible sharpness, while each higher degree recovers more detail, with quadratic offering a good accuracy&ndash;compression trade-off.</p>
+        <figure class="topology-figure">
+            <img src="resources/figures/truncation_col.png" alt="Progressive levels of detail through truncation" />
+        </figure>
+    </section>
+
+
+
+
+    <section>
+        <h2>Bibliography</h2>
+        <pre class="reference-file" style="text-align: left; white-space: pre-wrap; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; line-height: 1.6;">
+@article{williamson2026blended,
+  title={Blended Chart Surfaces: A Seamless Explicit Representation for Smooth Surface Fitting},
+  author={Williamson, Romy and Mitra, Niloy J.},
+  journal={arXiv preprint arXiv:2606.18069},
+  year={2026}
+}
+        </pre>
+    </section>
+
+</body>
+</html>

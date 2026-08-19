@@ -36,6 +36,7 @@ class BPS_fast(nn.Module):
             self.coarse_patches_id = surface_config['coarse_patches_id']+'-deformed'
             
         self.angle_flag = 'equal' #no longer used
+        self.onering_coords_flag = surface_config.get('onering_coords_flag', 'equal')
         self.overlap_param = surface_config['overlap_param']    # 0.15470053837 < v < 0.73205080756
         self.degree = surface_config['degree'] #polynomial degree
         self.global_scale = surface_config['global_scale'] # scaling of all the polynomials (after evaluating polynomials)
@@ -693,9 +694,9 @@ class BPS_fast(nn.Module):
 
                 
                 
-                onering_x, radii, theta, new_theta = self.onering_coords(cur_x, i, j, onering['valence'], flag=self.angle_flag, disc_index=onering['sharp_halfedges'], flip_func=flip_func)
+                onering_x, radii, theta, new_theta, djuren_jac = self.onering_coords(cur_x, i, j, onering['valence'], flag=self.onering_coords_flag, disc_index=onering['sharp_halfedges'], flip_func=flip_func, vtx_idx=verts[i], face_index=face_index)
 
-                blend_weight = self.blend_weight(cur_x, radii, i, j, blend_type=self.blend_type)
+                blend_weight = self.blend_weight(cur_x, radii, i, j, face_index=face_index, blend_type=self.blend_type)
                 r_a, r_b, r_c = radii
 
                 
@@ -709,12 +710,14 @@ class BPS_fast(nn.Module):
 
 
                 if detached==True:
-                    #print('cur x grad?', cur_x.requires_grad)
                     blend_weight_gradient = diffmod.gradient(out=blend_weight.reshape((1,-1,1)), wrt = cur_x, allow_unused=True ).squeeze()
-                    #print('bw grad', blend_weight_gradient.shape)
-                    onering_x_gradient = diffmod.gradient(out=onering_x.reshape(1, -1,2), wrt = cur_x, allow_unused=True)
-                    #print('oc grad', onering_x_gradient.shape)
-    
+                    if djuren_jac is not None:
+                        # Use pre-computed analytical Jacobian — avoids expensive autograd
+                        # backward through bary/norm/acos with create_graph=True
+                        onering_x_gradient = djuren_jac  # (S, 2, 2)
+                    else:
+                        onering_x_gradient = diffmod.gradient(out=onering_x.reshape(1, -1,2), wrt = cur_x, allow_unused=True)
+
                     all_onering_coords_gradients[face_index, :, i, :, :] = onering_x_gradient
                     all_blend_weights_gradients[face_index, :, i, :] = blend_weight_gradient
                 
@@ -754,12 +757,9 @@ class BPS_fast(nn.Module):
 
     
 
-            
-            
-        
 
 
-    def onering_coords(self, x, i, j, valence=6, flag='equal', disc_index=None, flip_func = (lambda x: x) ):
+    def onering_coords(self, x, i, j, valence=6, flag='equal', disc_index=None, flip_func=(lambda x: x), vtx_idx=None, face_index=None):
         
     
         
@@ -781,8 +781,6 @@ class BPS_fast(nn.Module):
         theta = torch.atan2(v[:,:, 1], v[:,:, 0])
         
         theta -= i * (two_pi / 3)
-        
-        
         theta = theta + (theta < 0) * two_pi
         theta = theta - (theta >= two_pi) * two_pi
         theta = two_pi / 6 - theta
@@ -793,6 +791,119 @@ class BPS_fast(nn.Module):
     
         if flag == 'equal':
             new_theta = global_theta
+        elif flag == 'djuren':
+            x_sq = x.squeeze(0)  # (S, 2)
+            bary = torch.stack([self.bary_weight(x_sq, k) for k in range(3)], dim=-1)  # (S, 3)
+            V_face = self.V[self.F[face_index]].to(x.device)  # (3, 3)
+            Xb = bary @ V_face  # (S, 3)
+
+            a = V_face[i]
+            b = V_face[(i + 1) % 3]
+            c = V_face[(i + 2) % 3]
+
+            v   = Xb - a
+            v_b = Xb - b
+            v_c = Xb - c
+
+            r_raw   = torch.norm(v,   dim=-1)  # (S,) actual 3D distance from anchor
+            r_b_raw = torch.norm(v_b, dim=-1)
+            r_c_raw = torch.norm(v_c, dim=-1)
+
+            # Normalise by mean edge length so polynomial inputs are ~[0,1], matching
+            # the equal-angle convention — local_scales then applies correctly in forward()
+            edge_scale = self.local_scales[face_index, i].detach()
+            r   = r_raw   / (edge_scale + 1e-8)
+            r_b = r_b_raw / (edge_scale + 1e-8)
+            r_c = r_c_raw / (edge_scale + 1e-8)
+
+            # angle from edge a→c to displacement a→Xb
+            w_n = (c - a) / (torch.norm(c - a) + 1e-8)
+            v_n = v / (r_raw.unsqueeze(-1) + 1e-8)  # use raw r for unit vector
+            cos_alpha = (v_n * w_n).sum(-1).clamp(-1.0, 1.0)
+            alpha = torch.acos(cos_alpha)  # (S,) — theta_local
+
+            cumulative_angles = self.onerings[vtx_idx]['cumulative_angles']
+            if cumulative_angles is None:
+                # boundary vertex: fall back to equal-angle mapping in 2D base-triangle space
+                new_theta = global_theta
+                new_theta = new_theta + (new_theta < 0) * two_pi
+                new_theta = new_theta - (new_theta >= two_pi) * two_pi
+                if not (disc_index is None or disc_index == []):
+                    new_theta = add_discontinuity(new_theta, shift=(two_pi / valence) * disc_index[0])
+                new_theta = flip_func(new_theta) % two_pi
+                onering_x = torch.stack(
+                    [r_a * torch.cos(new_theta), r_a * torch.sin(new_theta)], dim=0
+                ).to(dtype=torch.float32, device=self.device).squeeze().transpose(1, 0)
+                return onering_x, (r_a, r_b, r_c), theta, new_theta, None
+
+            # bns_utils applies one extra triangle rotation vs Djuren.py, so j_bns = j_djuren + 1 (mod valence)
+            j_djuren = (j - 1) % valence
+            total_angle = cumulative_angles[-1]
+            start_angle = cumulative_angles[j_djuren - 1] if j_djuren > 0 else 0.0
+            new_theta = (alpha + start_angle) * (two_pi / total_angle)
+
+            new_theta = new_theta + (new_theta < 0) * two_pi
+            new_theta = new_theta - (new_theta >= two_pi) * two_pi
+
+            if not (disc_index is None or disc_index == []):
+                new_theta = add_discontinuity(new_theta, shift=(two_pi / valence) * disc_index[0])
+
+            new_theta = flip_func(new_theta) % two_pi
+
+            onering_x = torch.stack(
+                [r * torch.cos(new_theta), r * torch.sin(new_theta)], dim=-1
+            ).to(dtype=torch.float32, device=self.device)
+            onering_x = torch.nan_to_num(onering_x, nan=0.0, posinf=0.0, neginf=0.0)
+            onering_x[r <= 1e-8] = 0.0
+
+            # Analytical Jacobian d(onering_x)/d(x_sq), shape (S, 2, 2).
+            # Avoids autograd backward through bary/norm/acos (which uses create_graph=True
+            # and is very expensive). All quantities below are already computed above.
+            with torch.no_grad():
+                # J_bary[k, c] = d(bary_k)/d(x_sq_c) — constant per face
+                inv_area2 = 0.5 / (0.5 * 0.5 * float(np.sqrt(3)))
+                btv = self.base_triangle_verts
+                J_bary = torch.stack([
+                    torch.stack([btv[(k+1)%3][1] - btv[(k+2)%3][1],
+                                 btv[(k+2)%3][0] - btv[(k+1)%3][0]]) * inv_area2
+                    for k in range(3)
+                ]).to(device=x.device)  # (3, 2)
+
+                # J_Xb[m, c] = d(Xb_m)/d(x_sq_c) — constant (3, 2)
+                J_Xb = V_face.detach().T @ J_bary  # (3, 2)
+
+                # d(r_norm)/d(x_sq) = d(r_raw/edge_scale)/d(x_sq) = (v_n @ J_Xb) / edge_scale
+                v_d   = v.detach()
+                r_raw_d = r_raw.detach()
+                v_n_d = v_d / (r_raw_d.unsqueeze(-1) + 1e-8)
+                J_r = (v_n_d @ J_Xb) / (edge_scale + 1e-8)  # (S, 2)  — gradient of normalised r
+
+                # d(v_n)/d(x_sq): (S, 3, 2)  via  (I - v_n⊗v_n) @ J_Xb / r_raw
+                vn_outer = v_n_d.unsqueeze(-1) * v_n_d.unsqueeze(-2)  # (S, 3, 3)
+                I3 = torch.eye(3, device=x.device, dtype=torch.float32)
+                J_vn = ((I3 - vn_outer) / (r_raw_d.unsqueeze(-1).unsqueeze(-1) + 1e-8)) @ J_Xb  # (S, 3, 2)
+
+                # d(cos_alpha)/d(x_sq): (S, 2)
+                J_cos = torch.einsum('m,smc->sc', w_n.detach(), J_vn)
+
+                # d(alpha)/d(x_sq): (S, 2)  via  -1/sin(alpha)
+                cos_d = cos_alpha.detach()
+                sin_a = (1.0 - cos_d**2).clamp(min=1e-8).sqrt()
+                J_alpha = -J_cos / (sin_a.unsqueeze(-1) + 1e-8)
+
+                # d(new_theta)/d(x_sq): (S, 2)
+                J_theta = (two_pi / total_angle) * J_alpha
+
+                # d(onering_x)/d(x_sq): (S, 2, 2)
+                th_d = new_theta.detach()
+                cos_th = torch.cos(th_d)
+                sin_th = torch.sin(th_d)
+                r_norm_d = r.detach()  # normalised r used in onering_x
+                J_ox0 = cos_th.unsqueeze(-1) * J_r - (r_norm_d * sin_th).unsqueeze(-1) * J_theta
+                J_ox1 = sin_th.unsqueeze(-1) * J_r + (r_norm_d * cos_th).unsqueeze(-1) * J_theta
+                djuren_jac = torch.stack([J_ox0, J_ox1], dim=1)  # (S, 2, 2)
+
+            return onering_x, (r, r_b, r_c), alpha, new_theta, djuren_jac
         else:
             raise Exception(f"{flag} is not a valid flag. It may have been deprecated.")
             
@@ -812,7 +923,7 @@ class BPS_fast(nn.Module):
         onering_x = torch.stack([r * torch.cos(new_theta), r * torch.sin(new_theta)],
                                 dim=0).to(dtype=torch.float32, device=self.device).squeeze().transpose(1,0)
     
-        return onering_x, (r_a, r_b, r_c), theta, new_theta
+        return onering_x, (r_a, r_b, r_c), theta, new_theta, None
 
 
 
@@ -855,10 +966,10 @@ class BPS_fast(nn.Module):
             blend_weight = B5_simple_exp(r_a, v=overlap_param)
 
         elif blend_type=='pou_simple_exp':
-            blend_weight = B5_simple_exp(r_a, v=overlap_param)/ (B5_simple_exp(r_a, v=overlap_param)+B5_simple_exp(r_b, v=overlap_param)+B5_simple_exp(r_c, v=overlap_param))
+            blend_weight = B5_simple_exp(r_a, v=overlap_param)/ (B5_simple_exp(r_a, v=overlap_param) + B5_simple_exp(r_b, v=overlap_param)+B5_simple_exp(r_c, v=overlap_param))
 
         elif blend_type=='djuren':
-            bary = [ self.bary_weight(x[face_index,:,:].squeeze(), k) for k in range(3) ]
+            bary = [ self.bary_weight(x[0,:,:].squeeze(), k) for k in range(3) ]
             verts = self.F[face_index, :]
             V_face = torch.tensor(self.V[verts, :], dtype=torch.float32, device=x.device)   # (3,3)
             

@@ -8,9 +8,23 @@ import sdf_fitter_2d_utils as sdf_2d
 
 import torch
 from pathlib import Path
-from stripped_deepsdf_model import Model, ModelNoPosenc  # your minimal Model class
+from stripped_deepsdf_model import Model, ModelNoPosenc, ModelNoPosenc_relu  # your minimal Model class
+
+from deepsdf_v3 import Model as ModelV3Gelu, ModelSoft1 as ModelV3Soft1, ModelSoft2 as ModelV3Soft2
 
 
+# Every architecture that a DeepSDF checkpoint might have been trained
+# with. `load_deepsdf_model`'s `model_variant` argument picks one of
+# these keys directly, instead of juggling separate posenc/activation/v3
+# flags whose combinations don't all make sense together.
+DEEPSDF_MODEL_VARIANTS = {
+    'posenc':         Model,           # FourierEmbedder (posenc) + GELU querier
+    'no_posenc_gelu': ModelNoPosenc,   # SimpleEmbedder (ReLU) + GELU querier
+    'no_posenc_relu': ModelNoPosenc_relu,  # SimpleEmbedder (ReLU) + ReLU querier
+    'v3_gelu':        ModelV3Gelu,     # SimpleEmbedder (ReLU) + GELU querier, default (ReLU) decoder FFN
+    'v3_soft1':       ModelV3Soft1,    # SoftEmbedder (GELU) + GELU querier + GELU decoder FFN
+    'v3_soft2':       ModelV3Soft2,    # SoftEmbedder (Softplus) + Softplus querier + Softplus decoder FFN
+}
 
 
 def check_for_nans(tensor, name='tensor'):
@@ -119,35 +133,46 @@ def twisted_torus_sdf(selected_pts, squared=False, k=10.0, R=0.35, r=0.13):
 
 
 
-def bumpy_torus_sdf(selected_pts, squared=False, R=0.35, r=0.13, bump_ampl=0.03, bump_freq=20.0):
+def bumpy_torus_sdf(selected_pts, squared=False, R=0.35, r=0.13, bump_ampl=0.03,
+                     bump_freq_theta=8.0, bump_freq_phi=6.0):
     """
-    Torus SDF with bumps/displacement
-    
+    Pseudo-SDF for a torus whose tube radius is modulated by a bump
+    pattern defined in proper toroidal coordinates:
+      - theta: angle around the major (central) axis
+      - phi:   angle around the tube's circular cross-section
+
     selected_pts: (B, N, 3)
     squared: return squared distance if True
     R: major radius
-    r: minor radius
-    bump_ampl: amplitude of bumps
-    bump_freq: frequency of bumps
+    r: minor (tube) radius
+    bump_ampl: amplitude of the bump pattern
+    bump_freq_theta: number of bumps around the major circle
+    bump_freq_phi: number of bumps around the tube cross-section
     """
-    # ---- Standard torus SDF ----
-    theta = torch.atan2(selected_pts[:, :, 2], selected_pts[:, :, 0])
-    central_ring = R * torch.stack([
-        torch.cos(theta),
-        torch.zeros_like(theta),
-        torch.sin(theta)
-    ], dim=-1)
-    torus_f = (selected_pts - central_ring).pow(2).sum(-1)
+    x, y, z = selected_pts[:, :, 0], selected_pts[:, :, 1], selected_pts[:, :, 2]
 
-    # ---- Displacement function (bumpy surface) ----
-    # Example: radial bumps along the torus
-    bumps = bump_ampl * torch.sin(bump_freq * theta) * torch.sin(bump_freq * selected_pts[:, :, 1])
-    
-    # ---- Combine ----
+    # ---- Angle around the major axis ----
+    theta = torch.atan2(z, x)
+
+    # ---- Local tube cross-section coordinates ----
+    # radial_offset: signed offset from the central ring, outward in the
+    # XZ plane; tube_y: offset along the tube's "up" (Y) axis.
+    radial_offset = torch.sqrt(x**2 + z**2) - R
+    tube_y = y
+
+    # ---- Angle around the tube cross-section ----
+    phi = torch.atan2(tube_y, radial_offset)
+
+    # ---- Distance from the tube's centerline (plain torus SDF) ----
+    tube_dist = torch.sqrt(radial_offset**2 + tube_y**2)
+
+    # ---- Bump pattern mapped onto (theta, phi) ----
+    bumps = bump_ampl * torch.sin(bump_freq_theta * theta) * torch.sin(bump_freq_phi * phi)
+
     if squared:
-        sdf = (torus_f.sqrt() - r + bumps)**2
+        sdf = (tube_dist - (r + bumps))**2
     else:
-        sdf = torus_f.sqrt() - r + bumps
+        sdf = tube_dist - (r + bumps)
 
     return sdf
 
@@ -703,21 +728,42 @@ def load_deepsdf_curve_model(weights_path='sdf_weights/curves/shark.pth', device
 
 
 
-def load_deepsdf_model(ckpt_path=None, device=None, posenc=True):
-    """Initializes and loads the DeepSDF model once."""
+def load_deepsdf_model(ckpt_path=None, device=None, model_variant=None,
+                        posenc=True, activation='gelu', v3=False):
+    """
+    Initializes and loads a DeepSDF-family model once.
+
+    The architecture is chosen directly via `model_variant`, one of the
+    keys of DEEPSDF_MODEL_VARIANTS ('posenc', 'no_posenc_gelu',
+    'no_posenc_relu', 'v3_gelu', 'v3_soft1', 'v3_soft2').
+
+    `posenc`/`activation`/`v3` are only used to derive a variant when
+    `model_variant` is left as None, for older call sites that haven't
+    been switched over yet. New code should pass `model_variant`
+    directly instead.
+    """
     if device is None:
         raise ValueError('Please specify the device to load the model on.')
 
-    print('Loading deepsdf model onto ', device)
+    if model_variant is None:
+        if v3:
+            model_variant = 'v3_soft2'
+        elif posenc:
+            model_variant = 'posenc'
+        elif activation == 'relu':
+            model_variant = 'no_posenc_relu'
+        else:
+            model_variant = 'no_posenc_gelu'
 
-    # Load model
-    # Assuming 'Model' is defined in your environment (e.g., imported from implicit_reps)
+    if model_variant not in DEEPSDF_MODEL_VARIANTS:
+        raise ValueError(
+            f"Unknown model_variant '{model_variant}'. "
+            f"Choose one of: {sorted(DEEPSDF_MODEL_VARIANTS)}"
+        )
 
-    if posenc == True:
-        model = Model()
-    else:
-        model = ModelNoPosenc()
-        
+    print(f"Loading deepsdf model onto {device} (variant='{model_variant}')")
+
+    model = DEEPSDF_MODEL_VARIANTS[model_variant]()
     model.to(device)
     
     ckpt_path = Path(ckpt_path)
@@ -744,7 +790,7 @@ def load_deepsdf_model(ckpt_path=None, device=None, posenc=True):
 
 
 
-def deepsdf(selected_pts, model, squared=False, transition_width=0.0):
+def deepsdf(selected_pts, model, squared=False, transition_width=0.0, safety_radius = 2.0):
     """
     Computes a blended SDF:
     - Uses original DeepSDF inside the unit sphere
@@ -765,7 +811,7 @@ def deepsdf(selected_pts, model, squared=False, transition_width=0.0):
 
     # Smooth blending weight
     # w = 0 inside, smoothly increases outside
-    w = torch.clamp((r - 1.0) / transition_width, min=0.0, max=1.0)
+    w = torch.clamp((r - safety_radius) / transition_width, min=0.0, max=1.0)
 
     # Optional smoother transition (comment out if not needed)
     #w = w * w * (3.0 - 2.0 * w)  # smoothstep

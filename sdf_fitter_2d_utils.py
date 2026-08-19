@@ -91,7 +91,7 @@ def signed_sdf(points, polyline):
     return unsigned * (np.where(inside, -1.0, 1.0))
 
 # --- Build training samples ---
-def sample_training_points(polyline, n_outside=2000, n_oncurve=800, padding=0.2):
+def sample_training_points(polyline, n_outside=2000, n_oncurve=800, padding=0.2, ribbon_offset=0.01):
     # bounding box for sampling
     minxy = polyline.min(axis=0)
     maxxy = polyline.max(axis=0)
@@ -115,7 +115,7 @@ def sample_training_points(polyline, n_outside=2000, n_oncurve=800, padding=0.2)
     unit = segs / segs_len
     normals[:, 0] = -unit[:, 1]
     normals[:, 1] = unit[:, 0]
-    offsets = (np.random.randn(n_oncurve, 1) * 0.01) * normals
+    offsets = (np.random.randn(n_oncurve, 1) * ribbon_offset) * normals
     oncurve = oncurve + offsets
     pts = np.vstack([outside, oncurve])
     sdf_vals = signed_sdf(pts, polyline)

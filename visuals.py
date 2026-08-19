@@ -30,6 +30,7 @@ from implicit_reps import *
 from mpl_toolkits.mplot3d import Axes3D
 
 import subprocess
+import warnings
 
 
 
@@ -180,7 +181,7 @@ def save_mesh_screenshots(meshes, output_prefix="screenshot", width=3200, height
 
 
 class BPS_visualiser():
-    def __init__(self, bps, mesh_res=6, output_filepath='rendering/rendering_results/',  show_on_coarse=False, blend_type=None, just_onering = False, mobius_example=False):
+    def __init__(self, bps, mesh_res=6, output_filepath='rendering/rendering_results/',  show_on_coarse=False, blend_type=None, just_onering = False, mobius_example=False, shape_name=None, sdf_id=None, sdf_model=None, transition_width=0.0, error_cmap=None, error_scale_const=None):
 
         self.mobius_example=mobius_example #flag that is set True if it's the mobius strip example
         self.mesh_res=mesh_res
@@ -188,6 +189,14 @@ class BPS_visualiser():
         self.blend_type=blend_type
         self.bps=bps
         self.output_filepath = output_filepath
+        self.shape_name = shape_name
+
+        # Needed only for the 'error' setting (SDF error colouring). Pass
+        # sdf_id=training_config['sdf_id'], sdf_model=DEEPSDF_MODEL,
+        # transition_width=transition_width to enable it.
+        self.sdf_id = sdf_id
+        self.sdf_model = sdf_model
+        self.transition_width = transition_width
 
         self.load_regular_base_patches()
 
@@ -216,6 +225,13 @@ class BPS_visualiser():
         self.facepatch_cmap = plt.get_cmap('tab20')
         self.angle_cmap = plt.get_cmap('hsv')
         #self.angle_cmap = plt.get_cmap('binary')
+
+        # Colour range for the 'error' setting: colours run from 0 to
+        # 1/error_scale_const (raw SDF units). Pass error_cmap (a colormap
+        # name or object) / error_scale_const to BPS_visualiser() to
+        # experiment per-run without editing this file.
+        self.error_cmap = plt.get_cmap(error_cmap) if isinstance(error_cmap, str) else (error_cmap or plt.get_cmap('Reds'))
+        self.error_scale_const = error_scale_const if error_scale_const is not None else 50
 
     
     # ============================================================
@@ -328,6 +344,54 @@ class BPS_visualiser():
     
         return all_normals
 
+
+    def _compute_sdf_error(self, points, batch_size=8192):
+        """
+        points: (P, N, 3) tensor of surface points. Returns abs(SDF) with
+        the same (P, N) shape -- same batched evaluation as
+        error-colouring.ipynb, just operating directly on the unmerged
+        per-patch points instead of a loaded/deduplicated mesh.
+
+        This is the expensive setting: unlike normals/curvature (cheap
+        closed-form math + autodiff on the already-fitted polynomial
+        surface), 'error' runs a full DeepSDF network forward pass at
+        every single output-mesh point -- easily >1M points at high
+        mesh_res. Batches stay on-device and only get moved to CPU once
+        at the end, so consecutive batches on MPS/CUDA aren't serialised
+        by a sync on every iteration.
+        """
+        shape = points.shape[:2]
+        flat = points.reshape(-1, 3)
+        num_pts = flat.shape[0]
+        batches = []
+
+        with torch.no_grad():
+            for start in range(0, num_pts, batch_size):
+                end = min(start + batch_size, num_pts)
+                batch = flat[start:end].unsqueeze(0)  # (1, B, 3)
+                vals = sdf(
+                    batch,
+                    self.sdf_id,
+                    squared=False,
+                    model=self.sdf_model,
+                    transition_width=self.transition_width,
+                )
+                batches.append(vals.squeeze(0).reshape(-1).abs())
+
+        abs_sdf = torch.cat(batches).detach().cpu()
+        return abs_sdf.reshape(shape)
+
+    def _save_error_colourbar(self, filename):
+        """Linear colourbar matching error-colouring.ipynb's cmap/scale."""
+        vmin, vmax = 0.0, 1.0 / self.error_scale_const
+        norm = Normalize(vmin=vmin, vmax=vmax)
+        sm = ScalarMappable(norm=norm, cmap=self.error_cmap)
+        sm.set_array([])
+
+        fig, ax = plt.subplots(figsize=(2, 5))
+        fig.colorbar(sm, cax=ax)
+        plt.savefig(filename, bbox_inches='tight', dpi=300)
+        plt.close()
 
 
     def show_cbar(self, mapping, cmap, filename="output/colorbar.png", horizontal=False):
@@ -541,7 +605,19 @@ class BPS_visualiser():
             self.princ_curvatures = princ_curvatures
             self.meancurv = H.squeeze()
             self.gausscurv = K.squeeze()
-        
+
+        # SDF error (distance of the fitted surface from the true implicit
+        # surface), same computation as error-colouring.ipynb.
+        if 'error' in settings:
+            if self.sdf_id is None:
+                warnings.warn(
+                    "compute_quantities: 'error' requested but BPS_visualiser "
+                    "was not given sdf_id/sdf_model; skipping error computation."
+                )
+            else:
+                print("computing sdf error...")
+                self.error = self._compute_sdf_error(output_points)
+
         #######################################################################################
 
         # ----------------------------------
@@ -649,11 +725,32 @@ class BPS_visualiser():
     '''
 
 
-    def show_bps(self, settings=['default'], vertex_id=0, patch_id=0, output_dir = 'rendering/rendering_results/', show_on_coarse=False):
+    def show_bps(self, settings=['default'], vertex_id=0, patch_id=0, output_dir = None, show_on_coarse=False, save=True):
         self.show_on_coarse = show_on_coarse
 
+        if output_dir is None:
+            shape = self.shape_name or 'unknown_shape'
+            if self.shape_name is None:
+                warnings.warn(
+                    "BPS_visualiser: no shape_name given; writing output under "
+                    "'unknown_shape/'. Pass shape_name=... to BPS_visualiser() for a "
+                    "sensible per-shape folder."
+                )
+            output_dir = Path(self.output_filepath) / shape
+
         output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
+        if save:
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            proxy_obj_path = Path('data/surfaces') / f"{self.bps.coarse_patches_id}.obj"
+            if proxy_obj_path.exists():
+                export_proxy_mesh(proxy_obj_path, output_dir, name="proxy")
+            else:
+                warnings.warn(f"show_bps: proxy mesh {proxy_obj_path} not found; skipping proxy export.")
+
+        # No-op helpers so every write/export call below is a one-liner guard-free
+        _write_mesh = o3d.io.write_triangle_mesh if save else (lambda *a, **kw: None)
+        _write_ply  = self._export_colored_ply   if save else (lambda *a, **kw: None)
 
         facepatch_sets = [self.facepatches]
         actual_vertex_positions = self.bps.actual_vertex_positions()
@@ -692,7 +789,7 @@ class BPS_visualiser():
                 name = 'Output Mesh Resolution ' +str(self.mesh_res)
                 o3d.visualization.draw_geometries( facepatches + vtx_blobs + actual_vtx_blobs, window_name = name )
                 combined_mesh = self._merge_meshes(facepatches)
-                o3d.io.write_triangle_mesh( str( output_dir / "patch-coloured.obj" ), combined_mesh)
+                _write_mesh( str( output_dir / "patch-coloured.obj" ), combined_mesh)
                 
             # ------------------------------------------------------------
             # Uniform colour
@@ -704,15 +801,17 @@ class BPS_visualiser():
                 name = f"Output Mesh Resolution {self.mesh_res}"
                 o3d.visualization.draw_geometries( facepatches + vtx_blobs + actual_vtx_blobs, window_name = name )
                 combined_mesh = self._merge_meshes(facepatches)
-                o3d.io.write_triangle_mesh( str(output_dir / "uniform-coloured.obj"), combined_mesh)
+                _write_mesh( str(output_dir / "uniform-coloured.obj"), combined_mesh)
+                _write_mesh( str(output_dir / "uniform-coloured.ply"), combined_mesh)
 
             if 'unblended' in settings:
                 for facepatch in facepatches:
                     facepatch.paint_uniform_color([0.5, 0.5, 1.0])
 
                 o3d.visualization.draw_geometries(self.unblended_facepatches+vtx_blobs+actual_vtx_blobs, window_name='Unblended')
-                combined_mesh = self._merge_meshes(self.unblended_facepatches)
-                o3d.io.write_triangle_mesh( str(output_dir / "uniform-coloured-unblended.obj"), combined_mesh)
+                combined_unblended_mesh = self._merge_meshes(self.unblended_facepatches)
+                _write_mesh( str(output_dir / "uniform-coloured-unblended.obj"), combined_unblended_mesh)
+                _write_mesh( str(output_dir / "unblended.ply"), combined_unblended_mesh)
         
     
             # ------------------------------------------------------------
@@ -733,10 +832,10 @@ class BPS_visualiser():
                 combined_mesh = self._merge_meshes(facepatches)
             
                 # OBJ export
-                o3d.io.write_triangle_mesh( str(output_dir / "normals-coloured.obj"), combined_mesh )
+                _write_mesh( str(output_dir / "normals-coloured.obj"), combined_mesh )
             
                 # Hakowan-compatible PLY export
-                self._export_colored_ply( facepatches, colors, output_dir / "normals.ply", name="normals_colours" )
+                _write_ply( facepatches, colors, output_dir / "normals.ply", name="normals_colours" )
 
 
             if 'abs-normals' in settings:
@@ -752,10 +851,10 @@ class BPS_visualiser():
                 # Visualise
                 o3d.visualization.draw_geometries( facepatches + vtx_blobs + actual_vtx_blobs, window_name="Abs Normals" )
                 #Export obj
-                o3d.io.write_triangle_mesh( str(output_dir / "abs-normals-coloured.obj"), self._merge_meshes(facepatches) )
+                _write_mesh( str(output_dir / "abs-normals-coloured.obj"), self._merge_meshes(facepatches) )
             
                 # Hakowan-compatible PLY export
-                self._export_colored_ply( facepatches, colors, output_dir / "abs-normals.ply", name="abs-normals_colours" )
+                _write_ply( facepatches, colors, output_dir / "abs-normals.ply", name="abs-normals_colours" )
 
 
             ################ CURVATURE VIEWS ###################
@@ -778,10 +877,10 @@ class BPS_visualiser():
                 o3d.visualization.draw_geometries(facepatches + vtx_blobs + actual_vtx_blobs, window_name='Mean Curvature')
                 
                 # OBJ export (Note: Ensure combined_mesh vertex colors are updated if using this)
-                o3d.io.write_triangle_mesh(str(output_dir / "meancurv-coloured.obj"), combined_mesh)
+                _write_mesh(str(output_dir / "meancurv-coloured.obj"), combined_mesh)
                 
                 # Export using the FULL color array
-                self._export_colored_ply(facepatches, combined_mean_colors, output_dir / "meancurv.ply", name="meancurv_colours")
+                _write_ply(facepatches, combined_mean_colors, output_dir / "meancurv.ply", name="meancurv_colours")
             
                 # --- Process Gauss Curvature ---
                 all_gauss_colors = []
@@ -796,16 +895,46 @@ class BPS_visualiser():
             
                 o3d.visualization.draw_geometries(facepatches + vtx_blobs + actual_vtx_blobs, window_name='Gauss Curvature')
             
-                o3d.io.write_triangle_mesh(str(output_dir / "gausscurv-coloured.obj"), combined_mesh)
+                _write_mesh(str(output_dir / "gausscurv-coloured.obj"), combined_mesh)
                 
                 # Export using the FULL color array
-                self._export_colored_ply(facepatches, combined_gauss_colors, output_dir / "gausscurv.ply", name="gausscurv_colours")
+                _write_ply(facepatches, combined_gauss_colors, output_dir / "gausscurv.ply", name="gausscurv_colours")
     
                     
     
                     
-                self.show_cbar(self.gausscurv_mapping, self.gausscurv_cmap, filename='output/gausscurv_cbar.png', horizontal=True)
-                self.show_cbar(self.meancurv_mapping, self.meancurv_cmap, filename='output/meancurv_cbar.png', horizontal=True)
+                if save:
+                    self.show_cbar(self.gausscurv_mapping, self.gausscurv_cmap, filename=str(output_dir / "gausscurv_cbar.png"), horizontal=True)
+                    self.show_cbar(self.meancurv_mapping, self.meancurv_cmap, filename=str(output_dir / "meancurv_cbar.png"), horizontal=True)
+
+            ################ SDF ERROR ###################
+            if 'error' in settings:
+                if not hasattr(self, 'error'):
+                    warnings.warn(
+                        "show_bps: 'error' requested but compute_quantities() wasn't "
+                        "called with 'error' in settings (or sdf_id/sdf_model wasn't "
+                        "given to BPS_visualiser()); skipping error export."
+                    )
+                else:
+                    scale = lambda x: x * self.error_scale_const
+
+                    all_error_colors = []
+                    for i, facepatch in enumerate(facepatches):
+                        colors = self.error_cmap(scale(self.error[i, :].detach().cpu().numpy()))[:, :-1]
+                        facepatch.vertex_colors = Vector3dVector(colors)
+                        all_error_colors.append(colors)
+
+                    combined_error_colors = np.concatenate(all_error_colors, axis=0)
+                    combined_error_mesh = self._merge_meshes(facepatches)
+                    combined_error_mesh.vertex_colors = o3d.utility.Vector3dVector(combined_error_colors)
+
+                    o3d.visualization.draw_geometries(facepatches + vtx_blobs + actual_vtx_blobs, window_name='SDF Error')
+
+                    _write_mesh(str(output_dir / "error-coloured.obj"), combined_error_mesh)
+                    _write_ply(facepatches, combined_error_colors, output_dir / "error.ply", name="error_colours")
+
+                    if save:
+                        self._save_error_colourbar(str(output_dir / "error_cbar.png"))
 
             if 'blend' in settings:
 
@@ -824,7 +953,7 @@ class BPS_visualiser():
                         
                 self._color_facepatches(facepatches, colors)
                 o3d.visualization.draw_geometries( facepatches, window_name='Blending Visualisation')
-                self._export_colored_ply(facepatches, colors, output_dir / "blending_visual.ply", name="blend" )
+                _write_ply(facepatches, colors, output_dir / "blending_visual.ply", name="blend" )
                     
     
             if 'bary' in settings:
@@ -835,7 +964,7 @@ class BPS_visualiser():
 
                 self._color_facepatches(facepatches, colors)
                 o3d.visualization.draw_geometries( facepatches, window_name='Barycentric')
-                self._export_colored_ply(facepatches, colors, output_dir / "barycentric.ply", name="bary" )
+                _write_ply(facepatches, colors, output_dir / "barycentric.ply", name="bary" )
 
 
             if 'angle' in settings:
@@ -853,8 +982,8 @@ class BPS_visualiser():
                 combined_coarse_mesh = self._merge_meshes(self.coarse_facepatches)
                 angle_colours = np.asarray( combined_mesh.vertex_colors )
 
-                self._export_colored_ply( facepatches, blended_angle_colors, output_dir / "angle-colors.ply", name="angle-colours" )
-                self._export_colored_ply( self.coarse_facepatches, blended_angle_colors, output_dir / "coarse-angle-colors.ply", name="angle-colours" )
+                _write_ply( facepatches, blended_angle_colors, output_dir / "angle-colors.ply", name="angle-colours" )
+                _write_ply( self.coarse_facepatches, blended_angle_colors, output_dir / "coarse-angle-colors.ply", name="angle-colours" )
 
 
             if 'param' in settings:
@@ -902,9 +1031,9 @@ class BPS_visualiser():
                 o3d.visualization.draw_geometries(facepatches+vtx_blobs+actual_vtx_blobs, window_name='Blended Param')
 
                 #Export ply files
-                self._export_colored_ply(facepatches, all_coarse_colors, output_dir / "blended_param.ply", name="param" )
-                self._export_colored_ply(self.coarse_facepatches, all_coarse_colors, output_dir / "coarse_param.ply", name="param" )
-                self._export_colored_ply(self.unblended_facepatches, all_unblended_colors, output_dir / "unblended_param.ply", name="param" )
+                _write_ply(facepatches, all_coarse_colors, output_dir / "blended_param.ply", name="param" )
+                _write_ply(self.coarse_facepatches, all_coarse_colors, output_dir / "coarse_param.ply", name="param" )
+                _write_ply(self.unblended_facepatches, all_unblended_colors, output_dir / "unblended_param.ply", name="param" )
 
 
 
